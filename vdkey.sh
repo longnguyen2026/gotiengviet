@@ -6,7 +6,8 @@
 set -e
 
 GITHUB_USER="longnguyen2026"
-GITHUB_REPO="vdkey"
+GITHUB_REPO="gotiengviet"
+TAG_NAME="vdkey"
 DEB_NAME="vdkey-1.0.0-Linux.deb"
 
 # Kiểm tra quyền sudo
@@ -140,7 +141,6 @@ fi
 # --- BƯỚC 3: CÀI ĐẶT FCITX5 VÀ DEPENDENCIES ---
 echo ""
 echo "=== [1/5] Cập nhật danh sách gói và cài đặt dependencies ==="
-# Bỏ qua mã lỗi nếu hệ thống có PPA ngoài bị 404 để không ngắt script
 $SUDO apt-get update -y || true
 
 $SUDO apt-get install -y \
@@ -160,9 +160,20 @@ echo "=== [2/5] Tải gói .deb từ GitHub Release ==="
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-DEB_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases/latest/download/${DEB_NAME}"
+DEB_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases/download/${TAG_NAME}/${DEB_NAME}"
 echo "Đang tải $DEB_URL ..."
-curl -sL "$DEB_URL" -o "$TMP_DIR/$DEB_NAME"
+
+# Tải với cờ -fL để bắt lỗi HTTP lập tức
+if ! curl -fL "$DEB_URL" -o "$TMP_DIR/$DEB_NAME"; then
+    echo "❌ Lỗi: Không thể tải file .deb từ Release. Vui lòng kiểm tra lại file đính kèm trên GitHub!"
+    exit 1
+fi
+
+# Kiểm tra file deb có toàn vẹn không
+if ! dpkg-deb -I "$TMP_DIR/$DEB_NAME" >/dev/null 2>&1; then
+    echo "❌ Lỗi: File .deb tải về không hợp lệ hoặc bị hỏng!"
+    exit 1
+fi
 
 echo ""
 echo "=== [3/5] Cài đặt gói VDKey ==="
@@ -209,7 +220,7 @@ X-GNOME-Autostart-Phase=Applications
 X-KDE-autostart-phase=1
 EOF
 
-# 2. Profile
+# 2. Profile (gán Layout=us cho cả vdkey và keyboard-us để giữ trạng thái trên Desktop)
 mkdir -p "$USER_HOME/.config/fcitx5"
 cat << 'EOF' > "$USER_HOME/.config/fcitx5/profile"
 [Groups/0]
@@ -229,7 +240,7 @@ Layout=us
 0=Default
 EOF
 
-# 3. Giữ trạng thái gõ toàn hệ thống
+# 3. Giữ trạng thái bộ gõ toàn hệ thống
 cat << 'EOF' > "$USER_HOME/.config/fcitx5/config"
 [GlobalOptions]
 ShareInputState=All
@@ -238,11 +249,11 @@ EOF
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/autostart" "$USER_HOME/.config/fcitx5"
 
-# 4. Làm mới tiến trình Fcitx5
+# 4. Làm mới tiến trình Fcitx5 (tắt triệt để để giải phóng DBus)
 killall -9 fcitx5 2>/dev/null || true
 pkill -9 -f fcitx5 2>/dev/null || true
-sleep 1
-fcitx5 -d &
+sleep 2
+fcitx5 -d --replace &>/dev/null &
 sleep 1
 fcitx5-remote -s vdkey 2>/dev/null || true
 fcitx5-remote -o 2>/dev/null || true
