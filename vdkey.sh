@@ -1,10 +1,6 @@
 #!/bin/bash
 set -e
 
-# ==============================================================================
-# Script cài đặt & tối ưu VDKey cho Fcitx5 (Hỗ trợ Kubuntu, Linux Mint, Plasma/GNOME)
-# ==============================================================================
-
 echo "=== [1/7] XÁC ĐỊNH NGƯỜI DÙNG VÀ MÔI TRƯỜNG HỆ THỐNG ==="
 ACTUAL_USER="${SUDO_USER:-$USER}"
 USER_HOME=$(eval echo "~$ACTUAL_USER")
@@ -31,9 +27,9 @@ sudo apt-get install -y -qq \
 
 echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
 TEMP_DEB="/tmp/vdkey-latest.deb"
-DEB_URL="https://github.com/longnguyen2026/vdkey/releases/latest/download/vdkey-1.0.0-Linux.deb"
+rm -f "$TEMP_DEB"
 
-# Kiểm tra nếu có sẵn file .deb local thì ưu tiên dùng, nếu không sẽ tải từ GitHub Release
+# 1. Ưu tiên kiểm tra file .deb cục bộ nếu có sẵn
 if [ -f "./vdkey-1.0.0-Linux.deb" ]; then
     echo "-> Sử dụng file .deb có sẵn tại thư mục hiện tại..."
     sudo dpkg -i "./vdkey-1.0.0-Linux.deb" || sudo apt-get install -f -y
@@ -42,17 +38,36 @@ elif ls vdkey*.deb 1> /dev/null 2>&1; then
     echo "-> Sử dụng file local: $LOCAL_DEB"
     sudo dpkg -i "$LOCAL_DEB" || sudo apt-get install -f -y
 else
-    echo "-> Đang tải file .deb từ GitHub Release..."
-    wget -qO "$TEMP_DEB" "$DEB_URL" || true
-    if [ -f "$TEMP_DEB" ]; then
+    echo "-> Đang tải file .deb từ GitHub..."
+    # Lấy link tải từ Release mới nhất qua API
+    RELEASE_URL=$(curl -s https://api.github.com/repos/longnguyen2026/vdkey/releases/latest | grep "browser_download_url.*\.deb" | cut -d '"' -f 4 | head -n 1)
+    
+    if [ -n "$RELEASE_URL" ]; then
+        curl -fL "$RELEASE_URL" -o "$TEMP_DEB" || true
+    fi
+
+    # Nếu API không có, thử tải link release trực tiếp
+    if [ ! -s "$TEMP_DEB" ]; then
+        curl -fL "https://github.com/longnguyen2026/vdkey/releases/latest/download/vdkey-1.0.0-Linux.deb" -o "$TEMP_DEB" || true
+    fi
+
+    # Nếu vẫn chưa có, thử tải trực tiếp từ repo gotiengviet
+    if [ ! -s "$TEMP_DEB" ]; then
+        curl -fL "https://raw.githubusercontent.com/longnguyen2026/gotiengviet/main/vdkey-1.0.0-Linux.deb" -o "$TEMP_DEB" || true
+    fi
+
+    # Kiểm tra tính toàn vẹn của file tải về trước khi chạy dpkg
+    if [ -s "$TEMP_DEB" ]; then
         sudo dpkg -i "$TEMP_DEB" || sudo apt-get install -f -y
+    else
+        echo "LỖI: Không tìm thấy gói .deb hợp lệ để cài đặt!"
+        exit 1
     fi
 fi
 
 echo "=== [4/7] CẤU HÌNH INPUTMETHOD VÀ ADDON CHUẨN XÁC ==="
 sudo mkdir -p /usr/share/fcitx5/inputmethod /usr/share/fcitx5/addon
 
-# Ghi đè file InputMethod với Icon chuẩn fcitx-vdkey
 sudo tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
 [InputMethod]
 Name=VDKey
@@ -63,7 +78,6 @@ Addon=vdkey
 Configurable=True
 EOF
 
-# Ghi đè file Addon để Fcitx5 load thư viện
 sudo tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
 [Addon]
 Name=vdkey
@@ -81,7 +95,7 @@ Configurable=True
 1=notifications
 EOF
 
-# Đảm bảo symlink thư viện libvdkey.so cho kiến trúc x86_64
+# Đảm bảo symlink thư viện cho x86_64
 if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so" ]; then
     sudo mkdir -p /usr/lib/x86_64-linux-gnu/fcitx5
     sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
@@ -97,7 +111,6 @@ sudo mkdir -p /usr/share/icons/breeze/status/24
 sudo mkdir -p /usr/share/icons/breeze-dark/status/22
 sudo mkdir -p /usr/share/icons/breeze-dark/status/24
 
-# Quét và đồng bộ các file icon vào đúng vị trí status của theme
 for icon in /usr/share/icons/*/*/apps/*vdkey*.svg /usr/share/icons/*/*/status/*vdkey*.svg; do
     if [ -f "$icon" ]; then
         sudo cp -f "$icon" /usr/share/icons/hicolor/scalable/status/fcitx-vdkey.svg 2>/dev/null || true
@@ -109,7 +122,6 @@ for icon in /usr/share/icons/*/*/apps/*vdkey*.svg /usr/share/icons/*/*/status/*v
     fi
 done
 
-# Cập nhật cache Icon
 sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
@@ -142,14 +154,12 @@ Layout=us
 0=Default
 EOF
 
-# Trả toàn bộ quyền sở hữu về cho người dùng (tránh lỗi Permission denied)
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
 echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 ==="
 killall -9 fcitx5 2>/dev/null || true
 sleep 1
 
-# Khởi chạy fcitx5 trong phiên user (không qua root)
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" fcitx5 -d >/dev/null 2>&1 &
 else
