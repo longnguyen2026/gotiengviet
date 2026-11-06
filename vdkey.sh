@@ -1,179 +1,70 @@
-#!/usr/bin/env bash
-# ==============================================================================
-# Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
-# Tự động gỡ xung đột, cấu hình profile và tắt kiểm tra chính tả gây lỗi Space
-# ==============================================================================
+#!/bin/bash
 set -e
 
-GITHUB_USER="longnguyen2026"
-GITHUB_REPO="gotiengviet"
-TAG_NAME="vdkey"
-DEB_NAME="vdkey-1.0.0-Linux.deb"
+# ==============================================================================
+# Script cài đặt & tối ưu VDKey cho Fcitx5 (Hỗ trợ Kubuntu, Linux Mint, Plasma/GNOME)
+# ==============================================================================
 
-# Kiểm tra quyền root / sudo
-if [ "$EUID" -eq 0 ]; then
-    SUDO=""
-else
-    SUDO="sudo"
+echo "=== [1/7] XÁC ĐỊNH NGƯỜI DÙNG VÀ MÔI TRƯỜNG HỆ THỐNG ==="
+ACTUAL_USER="${SUDO_USER:-$USER}"
+USER_HOME=$(eval echo "~$ACTUAL_USER")
+
+if [ -z "$ACTUAL_USER" ] || [ "$ACTUAL_USER" = "root" ]; then
+    ACTUAL_USER=$(logname 2>/dev/null || who | awk '{print $1}' | head -n 1)
+    USER_HOME=$(eval echo "~$ACTUAL_USER")
 fi
 
-echo "=================================================================="
-echo "          TRÌNH CÀI ĐẶT BỘ GÕ TIẾNG VIỆT VDKEY CHO LINUX          "
-echo "=================================================================="
+echo "-> Cài đặt cho User: $ACTUAL_USER"
+echo "-> Thư mục Home: $USER_HOME"
 
-# --- BƯỚC 1: KIỂM TRA BỘ GÕ KHÁC TRÊN HỆ THỐNG ---
-echo ">> Đang kiểm tra các bộ gõ tiếng Việt khác trên máy..."
-
-CONFLICT_PACKAGES=()
-INSTALLED_DESC=()
-
-CANDIDATES=(
-    "ibus"
-    "ibus-bamboo"
-    "ibus-unikey"
-    "ibus-table-vi"
-    "fcitx"
-    "fcitx-unikey"
-    "fcitx-bamboo"
-    "fcitx-table-vi"
-    "fcitx5-unikey"
-    "fcitx5-bamboo"
-    "fcitx5-funput"
-    "funput"
-    "fcitx5-bogo"
-    "openkey"
-)
-
-for pkg in "${CANDIDATES[@]}"; do
-    if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-        CONFLICT_PACKAGES+=("$pkg")
-        INSTALLED_DESC+=(" - Gói hệ thống: $pkg")
-    fi
-done
-
-# Quét an toàn các file cài tay của Funput
-MANUAL_FILES=()
-shopt -s nullglob
-for path in /usr/share/fcitx5/addon/*funput*.conf /usr/share/fcitx5/inputmethod/*funput*.conf /usr/lib/*/fcitx5/*funput*.so; do
-    if [ -f "$path" ]; then
-        MANUAL_FILES+=("$path")
-    fi
-done
-shopt -u nullglob
-
-if [ "${#MANUAL_FILES[@]}" -gt 0 ]; then
-    INSTALLED_DESC+=(" - File cài tay addon: Funput (${#MANUAL_FILES[@]} files)")
-fi
-
-REMOVE_OLD=false
-
-if [ "${#CONFLICT_PACKAGES[@]}" -gt 0 ] || [ "${#MANUAL_FILES[@]}" -gt 0 ]; then
-    echo ""
-    echo "⚠️  PHÁT HIỆN CÁC BỘ GÕ TIẾNG VIỆT KHÁC ĐANG CÓ TRÊN MÁY:"
-    for item in "${INSTALLED_DESC[@]}"; do
-        echo "$item"
-    done
-    echo ""
-    echo "Việc để nhiều bộ gõ chạy song song dễ gây xung đột phím và khay hệ thống."
-    echo "------------------------------------------------------------------"
-    echo "  [1] GỠ BỎ các bộ gõ cũ/xung đột và CÀI ĐẶT VDKey (Khuyên dùng)"
-    echo "  [2] GIỮ NGUYÊN bộ gõ cũ và tiếp tục CÀI ĐẶT VDKey"
-    echo "  [0] HỦY BỎ cài đặt"
-    echo "------------------------------------------------------------------"
-    
-    CHOICE=""
-    while true; do
-        if [ -c /dev/tty ]; then
-            read -r -p "Nhập lựa chọn của bạn [1/2/0]: " CHOICE < /dev/tty
-        else
-            read -r -p "Nhập lựa chọn của bạn [1/2/0]: " CHOICE
-        fi
-
-        case "$CHOICE" in
-            1)
-                REMOVE_OLD=true
-                echo ">> Đã chọn: Gỡ bộ gõ cũ và cài đặt VDKey."
-                break
-                ;;
-            2)
-                REMOVE_OLD=false
-                echo ">> Đã chọn: Giữ nguyên bộ gõ cũ và cài đặt VDKey."
-                break
-                ;;
-            0)
-                echo ">> Đã hủy tiến trình cài đặt."
-                exit 0
-                ;;
-            *)
-                echo "Lựa chọn không hợp lệ, vui lòng chọn 1, 2 hoặc 0."
-                ;;
-        esac
-    done
-else
-    echo ">> Không phát hiện bộ gõ nào khác xung đột. Tiếp tục cài đặt."
-fi
-
-# --- BƯỚC 2: GỠ BỎ NẾU CHỌN TÙY CHỌN 1 ---
-if [ "$REMOVE_OLD" = true ]; then
-    echo ""
-    echo "=== Đang dọn dẹp các bộ gõ cũ ==="
-    killall -9 ibus-daemon 2>/dev/null || true
-    killall -9 fcitx 2>/dev/null || true
-
-    if [ "${#CONFLICT_PACKAGES[@]}" -gt 0 ]; then
-        echo "Đang gỡ các gói: ${CONFLICT_PACKAGES[*]} ..."
-        $SUDO apt-get purge -y "${CONFLICT_PACKAGES[@]}" 2>/dev/null || true
-        $SUDO apt-get autoremove -y 2>/dev/null || true
-    fi
-
-    $SUDO rm -f /usr/share/fcitx5/addon/*funput*.conf 2>/dev/null || true
-    $SUDO rm -f /usr/share/fcitx5/inputmethod/*funput*.conf 2>/dev/null || true
-    $SUDO rm -f /usr/lib/*/fcitx5/*funput*.so 2>/dev/null || true
-    $SUDO rm -rf /usr/share/funput ~/.config/fcitx5/conf/*funput* 2>/dev/null || true
-    echo ">> Đã gỡ bỏ sạch sẽ bộ gõ cũ."
-fi
-
-# --- BƯỚC 3: CÀI ĐẶT FCITX5 VÀ DEPENDENCIES ---
-echo ""
-echo "=== [1/5] Cập nhật danh sách gói và cài đặt dependencies ==="
-$SUDO apt-get update -y || true
-
-$SUDO apt-get install -y \
-    curl \
+echo "=== [2/7] CÀI ĐẶT CÁC GÓI PHỤ THUỘC (DEPENDENCIES) ==="
+sudo apt-get update -qq
+sudo apt-get install -y -qq \
     fcitx5 \
-    fcitx5-frontend-gtk2 \
-    fcitx5-frontend-gtk3 \
-    fcitx5-frontend-gtk4 \
-    fcitx5-frontend-qt5 \
-    fcitx5-module-dbus \
-    fcitx5-module-emoji \
-    python3-pil 2>/dev/null || true
+    fcitx5-chinese-addons \
+    libfcitx5utils2 \
+    libfcitx5config6 \
+    libfcitx5core7 \
+    librsvg2-bin \
+    wget \
+    curl 2>/dev/null || true
 
-# --- BƯỚC 4: TẢI & CÀI ĐẶT GÓI VDKEY ---
-echo ""
-echo "=== [2/5] Tải gói .deb từ GitHub Release ==="
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
+TEMP_DEB="/tmp/vdkey-latest.deb"
+DEB_URL="https://github.com/longnguyen2026/vdkey/releases/latest/download/vdkey-1.0.0-Linux.deb"
 
-DEB_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases/download/${TAG_NAME}/${DEB_NAME}"
-echo "Đang tải $DEB_URL ..."
-
-if ! curl -fL "$DEB_URL" -o "$TMP_DIR/$DEB_NAME"; then
-    echo "❌ Lỗi: Không thể tải file .deb từ Release. Vui lòng kiểm tra lại link!"
-    exit 1
+# Kiểm tra nếu có sẵn file .deb local thì ưu tiên dùng, nếu không sẽ tải từ GitHub Release
+if [ -f "./vdkey-1.0.0-Linux.deb" ]; then
+    echo "-> Sử dụng file .deb có sẵn tại thư mục hiện tại..."
+    sudo dpkg -i "./vdkey-1.0.0-Linux.deb" || sudo apt-get install -f -y
+elif ls vdkey*.deb 1> /dev/null 2>&1; then
+    LOCAL_DEB=$(ls vdkey*.deb | head -n 1)
+    echo "-> Sử dụng file local: $LOCAL_DEB"
+    sudo dpkg -i "$LOCAL_DEB" || sudo apt-get install -f -y
+else
+    echo "-> Đang tải file .deb từ GitHub Release..."
+    wget -qO "$TEMP_DEB" "$DEB_URL" || true
+    if [ -f "$TEMP_DEB" ]; then
+        sudo dpkg -i "$TEMP_DEB" || sudo apt-get install -f -y
+    fi
 fi
 
-if ! dpkg-deb -I "$TMP_DIR/$DEB_NAME" >/dev/null 2>&1; then
-    echo "❌ Lỗi: File .deb tải về không hợp lệ hoặc bị hỏng!"
-    exit 1
-fi
+echo "=== [4/7] CẤU HÌNH INPUTMETHOD VÀ ADDON CHUẨN XÁC ==="
+sudo mkdir -p /usr/share/fcitx5/inputmethod /usr/share/fcitx5/addon
 
-echo ""
-echo "=== [3/5] Cài đặt gói VDKey ==="
-$SUDO dpkg -i --force-overwrite --force-confmiss "$TMP_DIR/$DEB_NAME" || $SUDO apt-get install -f -y
+# Ghi đè file InputMethod với Icon chuẩn fcitx-vdkey
+sudo tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
+[InputMethod]
+Name=VDKey
+Icon=fcitx-vdkey
+Label=VD
+LangCode=vi
+Addon=vdkey
+Configurable=True
+EOF
 
-# Chuẩn hóa cấu hình Addon và InputMethod của Fcitx5 (luôn ghi đè chính xác)
-$SUDO tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
+# Ghi đè file Addon để Fcitx5 load thư viện
+sudo tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
 [Addon]
 Name=vdkey
 Comment=VDKey Vietnamese Input Method
@@ -190,73 +81,50 @@ Configurable=True
 1=notifications
 EOF
 
-$SUDO tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
-[InputMethod]
-Name=VDKey
-Icon=fcitx-vdkey
-Label=VD
-LangCode=vi
-Addon=vdkey
-Configurable=True
-EOF
-
-# Đảm bảo symlink GUI cài đặt
-if [ -f "/usr/bin/fcitx5-ngosen-settings" ] && [ ! -f "/usr/bin/vdkey-settings" ]; then
-    $SUDO ln -sf /usr/bin/fcitx5-ngosen-settings /usr/bin/vdkey-settings
+# Đảm bảo symlink thư viện libvdkey.so cho kiến trúc x86_64
+if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so" ]; then
+    sudo mkdir -p /usr/lib/x86_64-linux-gnu/fcitx5
+    sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
 fi
 
-# Tạo symlink vdkey.so dự phòng trên mọi kiến trúc
-for libpath in /usr/lib/x86_64-linux-gnu/fcitx5 /usr/lib/fcitx5; do
-    if [ -f "$libpath/libvdkey.so" ]; then
-        $SUDO ln -sf "$libpath/libvdkey.so" "$libpath/vdkey.so"
+echo "=== [5/7] ĐỒNG BỘ BỘ ICON TRAY (HICOLOR & BREEZE) ==="
+sudo mkdir -p /usr/share/icons/hicolor/scalable/status
+sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
+sudo mkdir -p /usr/share/icons/hicolor/22x22/status
+sudo mkdir -p /usr/share/icons/hicolor/24x24/status
+sudo mkdir -p /usr/share/icons/breeze/status/22
+sudo mkdir -p /usr/share/icons/breeze/status/24
+sudo mkdir -p /usr/share/icons/breeze-dark/status/22
+sudo mkdir -p /usr/share/icons/breeze-dark/status/24
+
+# Quét và đồng bộ các file icon vào đúng vị trí status của theme
+for icon in /usr/share/icons/*/*/apps/*vdkey*.svg /usr/share/icons/*/*/status/*vdkey*.svg; do
+    if [ -f "$icon" ]; then
+        sudo cp -f "$icon" /usr/share/icons/hicolor/scalable/status/fcitx-vdkey.svg 2>/dev/null || true
+        sudo cp -f "$icon" /usr/share/icons/hicolor/scalable/status/vdkey.svg 2>/dev/null || true
+        sudo cp -f "$icon" /usr/share/icons/breeze/status/22/fcitx-vdkey.svg 2>/dev/null || true
+        sudo cp -f "$icon" /usr/share/icons/breeze/status/24/fcitx-vdkey.svg 2>/dev/null || true
+        sudo cp -f "$icon" /usr/share/icons/breeze-dark/status/22/fcitx-vdkey.svg 2>/dev/null || true
+        sudo cp -f "$icon" /usr/share/icons/breeze-dark/status/24/fcitx-vdkey.svg 2>/dev/null || true
     fi
 done
 
-$SUDO gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+# Cập nhật cache Icon
+sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
+sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
+sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
 
-# --- BƯỚC 5: BIẾN MÔI TRƯỜNG TOÀN HỆ THỐNG ---
-echo ""
-echo "=== [4/5] Thiết lập biến môi trường gõ tiếng Việt ==="
-$SUDO tee /etc/environment.d/99-fcitx5.conf > /dev/null << 'EOF'
-GTK_IM_MODULE=fcitx
-QT_IM_MODULE=fcitx
-XMODIFIERS=@im=fcitx
-EOF
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental 2>/dev/null || true
+elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+    kbuildsycoca5 --noincremental 2>/dev/null || true
+fi
 
-$SUDO tee /etc/profile.d/fcitx5.sh > /dev/null << 'EOF'
-export GTK_IM_MODULE=fcitx
-export QT_IM_MODULE=fcitx
-export XMODIFIERS=@im=fcitx
-export INPUT_METHOD=fcitx
-EOF
-$SUDO chmod +x /etc/profile.d/fcitx5.sh
+echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & SỬA QUYỀN SỞ HỮU ==="
+USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
+mkdir -p "$USER_FCITX_DIR"
 
-# --- BƯỚC 6: AUTOSTART, PROFILE VÀ TẮT SPELL CHECK ---
-echo ""
-echo "=== [5/5] Cấu hình Autostart, Profile và Tắt kiểm tra chính tả ==="
-CURRENT_USER="${SUDO_USER:-$USER}"
-USER_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
-
-# 1. Autostart
-mkdir -p "$USER_HOME/.config/autostart"
-cat << 'EOF' > "$USER_HOME/.config/autostart/org.fcitx.Fcitx5.desktop"
-[Desktop Entry]
-Name=Fcitx 5
-GenericName=Input Method
-Comment=Start Input Method
-Exec=fcitx5
-Icon=fcitx-vdkey
-Terminal=false
-Type=Application
-Categories=System;Utility;
-StartupNotify=false
-X-GNOME-Autostart-Phase=Applications
-X-KDE-autostart-phase=1
-EOF
-
-# 2. Profile: đặt vdkey lên đầu với Layout=us (như bản cũ)
-mkdir -p "$USER_HOME/.config/fcitx5"
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/profile"
+cat << 'EOF' > "$USER_FCITX_DIR/profile"
 [Groups/0]
 Name=Default
 Default Layout=us
@@ -274,52 +142,18 @@ Layout=us
 0=Default
 EOF
 
-# 3. Đồng bộ trạng thái nhập toàn hệ thống
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/config"
-[GlobalOptions]
-ShareInputState=All
-ResetInputMethodOnFocusIn=No
-EOF
+# Trả toàn bộ quyền sở hữu về cho người dùng (tránh lỗi Permission denied)
+chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
-# 4. Tắt triệt để kiểm tra chính tả (Spell check) để phím Space không nhảy chữ
-mkdir -p "$USER_HOME/.config/fcitx5/conf"
+echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 ==="
+killall -9 fcitx5 2>/dev/null || true
+sleep 1
 
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/conf/spell.config"
-[Spell]
-Enabled=False
-EOF
-
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/conf/vdkey.config"
-[Spell]
-CheckSpelling=False
-AutoCorrect=False
-RestoreIfInvalidWord=False
-EOF
-
-# Tắt cảnh báo Wayland chẩn đoán
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/conf/waylandim.config"
-[Diagnose]
-ShowAgain=False
-EOF
-
-chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/autostart" "$USER_HOME/.config/fcitx5"
-
-# 5. Nạp lại cấu hình trực tiếp (giữ nguyên logic gốc của script cũ, không bọc sudo-u)
-if pgrep -x "fcitx5" > /dev/null; then
-    fcitx5-remote -r 2>/dev/null || true
-    sleep 1
-    fcitx5-remote -s vdkey 2>/dev/null || true
-    fcitx5-remote -o 2>/dev/null || true
+# Khởi chạy fcitx5 trong phiên user (không qua root)
+if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
+    sudo -u "$ACTUAL_USER" fcitx5 -d >/dev/null 2>&1 &
 else
-    fcitx5 -d &>/dev/null &
-    sleep 1
-    fcitx5-remote -s vdkey 2>/dev/null || true
-    fcitx5-remote -o 2>/dev/null || true
+    fcitx5 -d >/dev/null 2>&1 &
 fi
 
-echo ""
-echo "=================================================================="
-echo ">> CÀI ĐẶT HOÀN TẤT VDKEY!"
-echo ">> Bộ gõ VDKey đã sẵn sàng trên khay hệ thống."
-echo ">> Nếu ứng dụng đang mở chưa gõ được ngay, vui lòng đăng xuất hoặc khởi động lại máy."
-echo "=================================================================="
+echo "=== HOÀN TẤT CÀI ĐẶT! BIỂU TƯỢNG VD ĐÃ SẴN SÀNG TRÊN KHAY HỆ THỐNG ==="
