@@ -29,40 +29,18 @@ echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
 TEMP_DEB="/tmp/vdkey-latest.deb"
 rm -f "$TEMP_DEB"
 
-# 1. Ưu tiên kiểm tra file .deb cục bộ nếu có sẵn
-if [ -f "./vdkey-1.0.0-Linux.deb" ]; then
-    echo "-> Sử dụng file .deb có sẵn tại thư mục hiện tại..."
-    sudo dpkg -i "./vdkey-1.0.0-Linux.deb" || sudo apt-get install -f -y
-elif ls vdkey*.deb 1> /dev/null 2>&1; then
-    LOCAL_DEB=$(ls vdkey*.deb | head -n 1)
-    echo "-> Sử dụng file local: $LOCAL_DEB"
-    sudo dpkg -i "$LOCAL_DEB" || sudo apt-get install -f -y
+# URL chuẩn từ release của repo gotiengviet
+RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-1.0.0-Linux.deb"
+
+echo "-> Đang tải gói .deb từ: $RELEASE_DEB_URL"
+curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB"
+
+if [ -s "$TEMP_DEB" ]; then
+    echo "-> Tải thành công! Đang tiến hành cài đặt..."
+    sudo dpkg -i "$TEMP_DEB" || sudo apt-get install -f -y
 else
-    echo "-> Đang tải file .deb từ GitHub..."
-    # Lấy link tải từ Release mới nhất qua API
-    RELEASE_URL=$(curl -s https://api.github.com/repos/longnguyen2026/vdkey/releases/latest | grep "browser_download_url.*\.deb" | cut -d '"' -f 4 | head -n 1)
-    
-    if [ -n "$RELEASE_URL" ]; then
-        curl -fL "$RELEASE_URL" -o "$TEMP_DEB" || true
-    fi
-
-    # Nếu API không có, thử tải link release trực tiếp
-    if [ ! -s "$TEMP_DEB" ]; then
-        curl -fL "https://github.com/longnguyen2026/vdkey/releases/latest/download/vdkey-1.0.0-Linux.deb" -o "$TEMP_DEB" || true
-    fi
-
-    # Nếu vẫn chưa có, thử tải trực tiếp từ repo gotiengviet
-    if [ ! -s "$TEMP_DEB" ]; then
-        curl -fL "https://raw.githubusercontent.com/longnguyen2026/gotiengviet/main/vdkey-1.0.0-Linux.deb" -o "$TEMP_DEB" || true
-    fi
-
-    # Kiểm tra tính toàn vẹn của file tải về trước khi chạy dpkg
-    if [ -s "$TEMP_DEB" ]; then
-        sudo dpkg -i "$TEMP_DEB" || sudo apt-get install -f -y
-    else
-        echo "LỖI: Không tìm thấy gói .deb hợp lệ để cài đặt!"
-        exit 1
-    fi
+    echo "LỖI: Không thể tải được file .deb!"
+    exit 1
 fi
 
 echo "=== [4/7] CẤU HÌNH INPUTMETHOD VÀ ADDON CHUẨN XÁC ==="
