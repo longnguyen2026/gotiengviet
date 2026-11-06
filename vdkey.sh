@@ -133,7 +133,7 @@ if [ "$REMOVE_OLD" = true ]; then
     echo ">> Đã gỡ bỏ sạch sẽ bộ gõ cũ."
 fi
 
-# --- BƯỚC 3: CÀI ĐẶT FCITX5 VÀ DEPENDENCIES ---
+# --- BƯỚC 3: CÀI ĐẶT FCITX5 VÀ DEPENDENCIES ĐỦ (GTK, QT5, QT6, PYQT) ---
 echo ""
 echo "=== [1/5] Cập nhật danh sách gói và cài đặt dependencies ==="
 $SUDO apt-get update -y || true
@@ -147,7 +147,13 @@ $SUDO apt-get install -y \
     fcitx5-frontend-qt5 \
     fcitx5-module-dbus \
     fcitx5-module-emoji \
-    python3-pil
+    python3-pil \
+    python3-pyqt5 \
+    python3-pyqt5.qtquick \
+    python3-pyqt5.qtsvg 2>/dev/null || true
+
+# Cài đặt thêm frontend Qt6 nếu repo hệ thống có sẵn
+$SUDO apt-get install -y fcitx5-frontend-qt6 2>/dev/null || true
 
 # --- BƯỚC 4: TẢI & CÀI ĐẶT GÓI VDKEY ---
 echo ""
@@ -170,7 +176,12 @@ fi
 
 echo ""
 echo "=== [3/5] Cài đặt gói VDKey ==="
-$SUDO dpkg -i "$TMP_DIR/$DEB_NAME" || $SUDO apt-get install -f -y
+$SUDO dpkg -i --force-overwrite "$TMP_DIR/$DEB_NAME" || $SUDO apt-get install -f -y
+
+# Đảm bảo symlink vdkey-settings luôn trỏ đúng vào GUI
+if [ -f "/usr/bin/fcitx5-ngosen-settings" ] && [ ! -f "/usr/bin/vdkey-settings" ]; then
+    $SUDO ln -sf /usr/bin/fcitx5-ngosen-settings /usr/bin/vdkey-settings
+fi
 
 # Chuẩn hóa cấu hình Addon và InputMethod của Fcitx5
 $SUDO tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
@@ -178,7 +189,7 @@ $SUDO tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
 Name=vdkey
 Comment=VDKey Vietnamese Input Method
 Category=InputMethod
-ConfigGUI=vdkey-settings
+ConfigGUI=fcitx5-ngosen-settings
 Version=1.0.0
 Enabled=True
 Library=vdkey
@@ -200,7 +211,7 @@ Addon=vdkey
 Configurable=True
 EOF
 
-# Tạo symlink vdkey.so dự phòng trường hợp engine tìm trực tiếp
+# Tạo symlink vdkey.so dự phòng
 for libpath in /usr/lib/x86_64-linux-gnu/fcitx5 /usr/lib/fcitx5; do
     if [ -f "$libpath/libvdkey.so" ]; then
         $SUDO ln -sf "$libpath/libvdkey.so" "$libpath/vdkey.so"
@@ -249,7 +260,7 @@ X-GNOME-Autostart-Phase=Applications
 X-KDE-autostart-phase=1
 EOF
 
-# 2. Profile gán đồng thời vdkey và keyboard-us (Layout us)
+# 2. Profile gán chuẩn: keyboard-us (Items/0) và vdkey (Items/1)
 mkdir -p "$USER_HOME/.config/fcitx5"
 cat << 'EOF' > "$USER_HOME/.config/fcitx5/profile"
 [Groups/0]
@@ -258,12 +269,12 @@ Default Layout=us
 DefaultIM=vdkey
 
 [Groups/0/Items/0]
-Name=vdkey
-Layout=us
+Name=keyboard-us
+Layout=
 
 [Groups/0/Items/1]
-Name=keyboard-us
-Layout=us
+Name=vdkey
+Layout=
 
 [GroupOrder]
 0=Default
@@ -299,17 +310,29 @@ EOF
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/autostart" "$USER_HOME/.config/fcitx5"
 
-# 5. Nạp lại cấu hình mượt mà cho tiến trình Fcitx5 đang chạy
+# Đồng bộ profile sang /etc/skel cho các tài khoản tạo mới sau này
+$SUDO mkdir -p /etc/skel/.config/fcitx5
+$SUDO cp -f "$USER_HOME/.config/fcitx5/profile" /etc/skel/.config/fcitx5/profile
+
+# 5. Nạp lại cấu hình mượt mà dưới đúng quyền của user đang đăng nhập
+RELOAD_CMD='
 if pgrep -x "fcitx5" > /dev/null; then
     fcitx5-remote -r 2>/dev/null || true
-    sleep 1
+    sleep 0.5
     fcitx5-remote -s vdkey 2>/dev/null || true
     fcitx5-remote -o 2>/dev/null || true
 else
     fcitx5 -d &>/dev/null &
-    sleep 1
+    sleep 0.5
     fcitx5-remote -s vdkey 2>/dev/null || true
     fcitx5-remote -o 2>/dev/null || true
+fi
+'
+
+if [ -n "$SUDO_USER" ]; then
+    su - "$CURRENT_USER" -c "$RELOAD_CMD" 2>/dev/null || eval "$RELOAD_CMD"
+else
+    eval "$RELOAD_CMD"
 fi
 
 echo ""
