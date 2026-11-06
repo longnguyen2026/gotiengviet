@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
-# Tự động dọn dẹp bản cũ, nạp profile chuẩn, sửa lỗi mất danh mục bộ gõ và icon
+# Tự động gỡ bộ gõ cũ, nạp profile, kích hoạt logo VD và khắc phục lỗi thiếu conffile
 # ==============================================================================
 set -e
 
@@ -132,14 +132,14 @@ if [ "$REMOVE_OLD" = true ]; then
     echo ">> Đã gỡ bỏ sạch sẽ bộ gõ cũ."
 fi
 
-# --- BƯỚC 3: DỌN DẸP TIẾN TRÌNH VDKEY CŨ ---
+# --- BƯỚC 3: DỪNG TIẾN TRÌNH FCITX5 HIỆN TẠI ---
 echo ""
 echo "=== Dừng tiến trình Fcitx5 để chuẩn bị cài đặt ==="
 fcitx5-remote -e 2>/dev/null || pkill -9 -f fcitx5 2>/dev/null || true
 
 # --- BƯỚC 4: CÀI ĐẶT FCITX5 VÀ DEPENDENCIES ĐỦ ---
 echo ""
-echo "=== [1/5] Cập nhật danh sách gói và cài đặt dependencies ==="
+echo "=== [1/4] Cập nhật danh sách gói và cài đặt dependencies ==="
 $SUDO apt-get update -y || true
 
 $SUDO apt-get install -y \
@@ -160,7 +160,7 @@ $SUDO apt-get install -y fcitx5-frontend-qt6 2>/dev/null || true
 
 # --- BƯỚC 5: TẢI & CÀI ĐẶT GÓI VDKEY MỚI NHẤT ---
 echo ""
-echo "=== [2/5] Tải gói .deb từ GitHub Release ==="
+echo "=== [2/4] Tải gói .deb từ GitHub Release ==="
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -178,8 +178,8 @@ if ! dpkg-deb -I "$TMP_DIR/$DEB_NAME" >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "=== [3/5] Cài đặt gói VDKey ==="
-# Dùng cờ --force-overwrite và --force-confmiss để luôn bung đầy đủ mọi file
+echo "=== [3/4] Cài đặt gói VDKey ==="
+# Ép ghi đè và phục hồi toàn bộ file cấu hình bị xóa trước đó
 $SUDO dpkg -i --force-overwrite --force-confmiss "$TMP_DIR/$DEB_NAME" || $SUDO apt-get install -f -y
 
 # Đảm bảo symlink GUI cài đặt
@@ -187,37 +187,7 @@ if [ -f "/usr/bin/fcitx5-ngosen-settings" ] && [ ! -f "/usr/bin/vdkey-settings" 
     $SUDO ln -sf /usr/bin/fcitx5-ngosen-settings /usr/bin/vdkey-settings
 fi
 
-# GHI ĐÈ TRỰC TIẾP FILE KHAI BÁO BỘ GÕ ĐỂ TRÁNH MẤT TỎNG DANH MỤC THÊM BỘ GÕ
-$SUDO mkdir -p /usr/share/fcitx5/addon /usr/share/fcitx5/inputmethod
-
-$SUDO tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
-[Addon]
-Name=vdkey
-Comment=VDKey Vietnamese Input Method
-Category=InputMethod
-ConfigGUI=fcitx5-ngosen-settings
-Version=1.0.0
-Enabled=True
-Library=vdkey
-Type=SharedLibrary
-OnDemand=False
-Configurable=True
-[Addon/OptionalDependencies]
-0=dbus
-1=notifications
-EOF
-
-$SUDO tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
-[InputMethod]
-Name=VDKey
-Icon=fcitx-vdkey
-Label=VD
-LangCode=vi
-Addon=vdkey
-Configurable=True
-EOF
-
-# Tạo symlink thư viện đề phòng trường hợp engine tìm trực tiếp vdkey.so
+# Đảm bảo symlink tương thích kiến trúc cho thư viện shared module
 for libpath in /usr/lib/x86_64-linux-gnu/fcitx5 /usr/lib/fcitx5; do
     if [ -f "$libpath/libvdkey.so" ]; then
         $SUDO ln -sf "$libpath/libvdkey.so" "$libpath/vdkey.so"
@@ -225,7 +195,7 @@ for libpath in /usr/lib/x86_64-linux-gnu/fcitx5 /usr/lib/fcitx5; do
 done
 $SUDO ldconfig 2>/dev/null || true
 
-# Đồng bộ icon sang tất cả theme để máy nào cũng hiển thị logo VD
+# Đồng bộ icon sang tất cả theme để mọi desktop environment đều hiện logo VD
 for tdir in /usr/share/icons/*; do
     if [ -d "$tdir" ] && [ -f "$tdir/index.theme" ]; then
         if [ ! -f "$tdir/status/22/fcitx-vdkey.svg" ] && [ -d "$tdir/status" ]; then
@@ -239,7 +209,7 @@ done
 
 # --- BƯỚC 6: BIẾN MÔI TRƯỜNG TOÀN HỆ THỐNG ---
 echo ""
-echo "=== [4/5] Thiết lập biến môi trường gõ tiếng Việt ==="
+echo "=== [4/4] Thiết lập biến môi trường và profile ==="
 $SUDO tee /etc/environment.d/99-fcitx5.conf > /dev/null << 'EOF'
 GTK_IM_MODULE=fcitx
 QT_IM_MODULE=fcitx
@@ -255,8 +225,6 @@ EOF
 $SUDO chmod +x /etc/profile.d/fcitx5.sh
 
 # --- BƯỚC 7: AUTOSTART, PROFILE VÀ KÍCH HOẠT VDKEY ---
-echo ""
-echo "=== [5/5] Cấu hình Profile, Autostart và Khởi động lại Fcitx5 ==="
 CURRENT_USER="${SUDO_USER:-$USER}"
 USER_HOME=$(eval echo "~$CURRENT_USER")
 
@@ -325,7 +293,7 @@ EOF
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/autostart" "$USER_HOME/.config/fcitx5"
 
-# Đồng bộ profile sang /etc/skel
+# Đồng bộ profile sang /etc/skel cho các tài khoản tạo mới
 $SUDO mkdir -p /etc/skel/.config/fcitx5
 $SUDO cp -f "$USER_HOME/.config/fcitx5/profile" /etc/skel/.config/fcitx5/profile
 
@@ -351,6 +319,6 @@ fi
 echo ""
 echo "=================================================================="
 echo ">> CÀI ĐẶT HOÀN TẤT VDKEY!"
-echo ">> VDKey đã được nạp thẳng vào khay hệ thống và danh mục bộ gõ."
+echo ">> VDKey đã sẵn sàng trên khay hệ thống và danh mục bộ gõ."
 echo ">> Nếu ứng dụng đang mở chưa gõ được ngay, hãy đăng xuất hoặc khởi động lại máy."
 echo "=================================================================="
