@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
-# Tự động gỡ bộ gõ cũ, nạp profile, kích hoạt logo VD và khắc phục lỗi thiếu conffile
+# Tự động gỡ bộ gõ cũ, nạp profile, kích hoạt logo VD và chống crash sudo-rs
 # ==============================================================================
 set -e
 
@@ -10,16 +10,22 @@ GITHUB_REPO="gotiengviet"
 TAG_NAME="vdkey"
 DEB_NAME="vdkey-1.0.0-Linux.deb"
 
-# Kiểm tra quyền root / sudo
+# Kiểm tra quyền thực thi
 if [ "$EUID" -eq 0 ]; then
     SUDO=""
 else
     SUDO="sudo"
 fi
 
+# Xác định chính xác User đồ họa thực tế (tránh nhầm lẫn thư mục root)
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+REAL_UID=$(id -u "$REAL_USER")
+
 echo "=================================================================="
 echo "          TRÌNH CÀI ĐẶT BỘ GÕ TIẾNG VIỆT VDKEY CHO LINUX          "
 echo "=================================================================="
+echo ">> Người dùng đích: $REAL_USER ($REAL_HOME)"
 
 # --- BƯỚC 1: KIỂM TRA BỘ GÕ XUNG ĐỘT TRÊN MÁY ---
 echo ">> Đang kiểm tra các bộ gõ tiếng Việt khác trên hệ thống..."
@@ -135,7 +141,8 @@ fi
 # --- BƯỚC 3: DỪNG TIẾN TRÌNH FCITX5 HIỆN TẠI ---
 echo ""
 echo "=== Dừng tiến trình Fcitx5 để chuẩn bị cài đặt ==="
-fcitx5-remote -e 2>/dev/null || pkill -9 -f fcitx5 2>/dev/null || true
+killall -9 fcitx5 2>/dev/null || true
+sleep 1
 
 # --- BƯỚC 4: CÀI ĐẶT FCITX5 VÀ DEPENDENCIES ĐỦ ---
 echo ""
@@ -179,7 +186,6 @@ fi
 
 echo ""
 echo "=== [3/4] Cài đặt gói VDKey ==="
-# Ép ghi đè và phục hồi toàn bộ file cấu hình bị xóa trước đó
 $SUDO dpkg -i --force-overwrite --force-confmiss "$TMP_DIR/$DEB_NAME" || $SUDO apt-get install -f -y
 
 # Đảm bảo symlink GUI cài đặt
@@ -187,7 +193,7 @@ if [ -f "/usr/bin/fcitx5-ngosen-settings" ] && [ ! -f "/usr/bin/vdkey-settings" 
     $SUDO ln -sf /usr/bin/fcitx5-ngosen-settings /usr/bin/vdkey-settings
 fi
 
-# Đảm bảo symlink tương thích kiến trúc cho thư viện shared module
+# Đảm bảo tương thích thư viện kiến trúc (tránh lỗi Cannot find file vdkey)
 for libpath in /usr/lib/x86_64-linux-gnu/fcitx5 /usr/lib/fcitx5; do
     if [ -f "$libpath/libvdkey.so" ]; then
         $SUDO ln -sf "$libpath/libvdkey.so" "$libpath/vdkey.so"
@@ -195,7 +201,41 @@ for libpath in /usr/lib/x86_64-linux-gnu/fcitx5 /usr/lib/fcitx5; do
 done
 $SUDO ldconfig 2>/dev/null || true
 
-# Đồng bộ icon sang tất cả theme để mọi desktop environment đều hiện logo VD
+# Đảm bảo file cấu hình addon và inputmethod luôn tồn tại
+$SUDO mkdir -p /usr/share/fcitx5/addon /usr/share/fcitx5/inputmethod
+
+if [ ! -f /usr/share/fcitx5/addon/vdkey.conf ]; then
+$SUDO tee /usr/share/fcitx5/addon/vdkey.conf > /dev/null << 'EOF'
+[Addon]
+Name=vdkey
+Comment=VDKey Vietnamese Input Method
+Category=InputMethod
+ConfigGUI=fcitx5-ngosen-settings
+Version=1.0.0
+Enabled=True
+Library=vdkey
+Type=SharedLibrary
+OnDemand=False
+Configurable=True
+[Addon/OptionalDependencies]
+0=dbus
+1=notifications
+EOF
+fi
+
+if [ ! -f /usr/share/fcitx5/inputmethod/vdkey.conf ]; then
+$SUDO tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
+[InputMethod]
+Name=VDKey
+Icon=fcitx-vdkey
+Label=VD
+LangCode=vi
+Addon=vdkey
+Configurable=True
+EOF
+fi
+
+# Đồng bộ icon sang tất cả theme để hiện chuẩn logo VD
 for tdir in /usr/share/icons/*; do
     if [ -d "$tdir" ] && [ -f "$tdir/index.theme" ]; then
         if [ ! -f "$tdir/status/22/fcitx-vdkey.svg" ] && [ -d "$tdir/status" ]; then
@@ -209,7 +249,7 @@ done
 
 # --- BƯỚC 6: BIẾN MÔI TRƯỜNG TOÀN HỆ THỐNG ---
 echo ""
-echo "=== [4/4] Thiết lập biến môi trường và profile ==="
+echo "=== [4/4] Thiết lập biến môi trường và nạp profile ==="
 $SUDO tee /etc/environment.d/99-fcitx5.conf > /dev/null << 'EOF'
 GTK_IM_MODULE=fcitx
 QT_IM_MODULE=fcitx
@@ -224,13 +264,10 @@ export INPUT_METHOD=fcitx
 EOF
 $SUDO chmod +x /etc/profile.d/fcitx5.sh
 
-# --- BƯỚC 7: AUTOSTART, PROFILE VÀ KÍCH HOẠT VDKEY ---
-CURRENT_USER="${SUDO_USER:-$USER}"
-USER_HOME=$(eval echo "~$CURRENT_USER")
-
+# --- BƯỚC 7: AUTOSTART VÀ PROFILE NGƯỜI DÙNG ---
 # 1. Autostart
-mkdir -p "$USER_HOME/.config/autostart"
-cat << 'EOF' > "$USER_HOME/.config/autostart/org.fcitx.Fcitx5.desktop"
+mkdir -p "$REAL_HOME/.config/autostart"
+cat << 'EOF' > "$REAL_HOME/.config/autostart/org.fcitx.Fcitx5.desktop"
 [Desktop Entry]
 Name=Fcitx 5
 GenericName=Input Method
@@ -245,9 +282,9 @@ X-GNOME-Autostart-Phase=Applications
 X-KDE-autostart-phase=1
 EOF
 
-# 2. Profile gán sẵn vdkey
-mkdir -p "$USER_HOME/.config/fcitx5"
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/profile"
+# 2. Profile nạp trực tiếp vdkey
+mkdir -p "$REAL_HOME/.config/fcitx5"
+cat << 'EOF' > "$REAL_HOME/.config/fcitx5/profile"
 [Groups/0]
 Name=Default
 Default Layout=us
@@ -265,60 +302,69 @@ Layout=
 0=Default
 EOF
 
-# 3. Đồng bộ trạng thái nhập
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/config"
+# 3. Cấu hình nhập liệu
+cat << 'EOF' > "$REAL_HOME/.config/fcitx5/config"
 [GlobalOptions]
 ShareInputState=All
 ResetInputMethodOnFocusIn=No
 EOF
 
-# 4. Tắt Spell check tránh nhảy chữ khi gõ Space
-mkdir -p "$USER_HOME/.config/fcitx5/conf"
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/conf/spell.config"
+# 4. Tắt kiểm tra chính tả gây nhảy ký tự
+mkdir -p "$REAL_HOME/.config/fcitx5/conf"
+cat << 'EOF' > "$REAL_HOME/.config/fcitx5/conf/spell.config"
 [Spell]
 Enabled=False
 EOF
 
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/conf/vdkey.config"
+cat << 'EOF' > "$REAL_HOME/.config/fcitx5/conf/vdkey.config"
 [Spell]
 CheckSpelling=False
 AutoCorrect=False
 RestoreIfInvalidWord=False
 EOF
 
-cat << 'EOF' > "$USER_HOME/.config/fcitx5/conf/waylandim.config"
+cat << 'EOF' > "$REAL_HOME/.config/fcitx5/conf/waylandim.config"
 [Diagnose]
 ShowAgain=False
 EOF
 
-chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/autostart" "$USER_HOME/.config/fcitx5"
+# Phân quyền đúng cho User thực tế
+chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/autostart" "$REAL_HOME/.config/fcitx5"
 
-# Đồng bộ profile sang /etc/skel cho các tài khoản tạo mới
+# Đồng bộ profile sang /etc/skel cho các user mới
 $SUDO mkdir -p /etc/skel/.config/fcitx5
-$SUDO cp -f "$USER_HOME/.config/fcitx5/profile" /etc/skel/.config/fcitx5/profile
+$SUDO cp -f "$REAL_HOME/.config/fcitx5/profile" /etc/skel/.config/fcitx5/profile
 
-# Xóa cache icon Plasma cũ của user
-rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" 2>/dev/null || true
+# Xóa cache icon cũ của user
+rm -rf "$REAL_HOME/.cache/icon-cache.kcache" "$REAL_HOME/.cache/plasma*" 2>/dev/null || true
 
-# 5. Khởi động lại Fcitx5 dưới quyền User hiện tại
-RELOAD_CMD='
-fcitx5-remote -e 2>/dev/null || pkill -9 -f fcitx5 2>/dev/null || true
+# --- BƯỚC 8: KHỞI ĐỘNG LẠI FCITX5 CHUẨN SESSION GRAPHICAL DBUS ---
+# Chuỗi lệnh khởi động lại Fcitx5 và kích hoạt ngay VDKey
+RELOAD_SCRIPT="
+killall -9 fcitx5 2>/dev/null || true
 sleep 1
 fcitx5 -d >/dev/null 2>&1 &
 sleep 1
-fcitx5-remote -s vdkey 2>/dev/null || true
-fcitx5-remote -o 2>/dev/null || true
-'
+fcitx5-remote -r >/dev/null 2>&1 || true
+fcitx5-remote -s vdkey >/dev/null 2>&1 || true
+fcitx5-remote -o >/dev/null 2>&1 || true
+"
 
-if [ -n "$SUDO_USER" ]; then
-    su - "$CURRENT_USER" -c "$RELOAD_CMD" 2>/dev/null || eval "$RELOAD_CMD"
+# Thực thi lệnh dưới đúng session người dùng để tránh crash sudo-rs
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    su - "$REAL_USER" -c "
+        export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${REAL_UID}/bus\"
+        export DISPLAY=\"${DISPLAY:-:0}\"
+        export XDG_RUNTIME_DIR=\"/run/user/${REAL_UID}\"
+        $RELOAD_SCRIPT
+    " 2>/dev/null || true
 else
-    eval "$RELOAD_CMD"
+    eval "$RELOAD_SCRIPT"
 fi
 
 echo ""
 echo "=================================================================="
 echo ">> CÀI ĐẶT HOÀN TẤT VDKEY!"
-echo ">> VDKey đã sẵn sàng trên khay hệ thống và danh mục bộ gõ."
-echo ">> Nếu ứng dụng đang mở chưa gõ được ngay, hãy đăng xuất hoặc khởi động lại máy."
+echo ">> VDKey đã được kích hoạt thành công trên khay hệ thống."
+echo ">> Kiểm tra trạng thái hiện tại bằng lệnh: fcitx5-remote -n"
 echo "=================================================================="
