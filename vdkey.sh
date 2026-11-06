@@ -10,7 +10,8 @@ if [ -z "$ACTUAL_USER" ] || [ "$ACTUAL_USER" = "root" ]; then
     USER_HOME=$(eval echo "~$ACTUAL_USER")
 fi
 
-echo "-> Cài đặt cho User: $ACTUAL_USER"
+ACTUAL_UID=$(id -u "$ACTUAL_USER")
+echo "-> Cài đặt cho User: $ACTUAL_USER (UID: $ACTUAL_UID)"
 echo "-> Thư mục Home: $USER_HOME"
 
 echo "=== [2/7] CÀI ĐẶT CÁC GÓI PHỤ THUỘC (DEPENDENCIES) ==="
@@ -18,6 +19,10 @@ sudo apt-get update -qq
 sudo apt-get install -y -qq \
     fcitx5 \
     fcitx5-chinese-addons \
+    fcitx5-frontend-qt6 \
+    fcitx5-frontend-gtk3 \
+    fcitx5-frontend-gtk4 \
+    libfcitx5qt6dbusaddons1 \
     libfcitx5utils2 \
     libfcitx5config6 \
     libfcitx5core7 \
@@ -41,6 +46,13 @@ if [ -s "$TEMP_DEB" ]; then
 else
     echo "LỖI: Không thể tải được file .deb!"
     exit 1
+fi
+
+# Tự động vá lỗi crash Py_Exit / SIP trên Python 3.14
+MAIN_PY="/usr/share/fcitx5-ngosen/settings-gui/main.py"
+if [ -f "$MAIN_PY" ]; then
+    echo "-> Đang vá lỗi Segmentation Fault cho giao diện cài đặt..."
+    sudo sed -i 's/sys.exit(code)/import os; os._exit(code if code is not None else 0)/g' "$MAIN_PY"
 fi
 
 echo "=== [4/7] CẤU HÌNH INPUTMETHOD VÀ ADDON CHUẨN XÁC ==="
@@ -79,35 +91,60 @@ if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5
     sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
 fi
 
-echo "=== [5/7] ĐỒNG BỘ BỘ ICON TRAY (HICOLOR & BREEZE) ==="
+echo "=== [5/7] ĐỒNG BỘ BỘ ICON TRAY (HICOLOR & BREEZE ĐẦY ĐỦ RASTERIZED) ==="
+# Tạo toàn bộ cây thư mục chuẩn cho Plasma Wayland
 sudo mkdir -p /usr/share/icons/hicolor/scalable/status
 sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
 sudo mkdir -p /usr/share/icons/hicolor/22x22/status
 sudo mkdir -p /usr/share/icons/hicolor/24x24/status
-sudo mkdir -p /usr/share/icons/breeze/status/22
-sudo mkdir -p /usr/share/icons/breeze/status/24
-sudo mkdir -p /usr/share/icons/breeze-dark/status/22
-sudo mkdir -p /usr/share/icons/breeze-dark/status/24
+sudo mkdir -p /usr/share/icons/breeze/status/{22,24}
+sudo mkdir -p /usr/share/icons/breeze-dark/status/{22,24}
 
-for icon in /usr/share/icons/*/*/apps/*vdkey*.svg /usr/share/icons/*/*/status/*vdkey*.svg; do
-    if [ -f "$icon" ]; then
-        sudo cp -f "$icon" /usr/share/icons/hicolor/scalable/status/fcitx-vdkey.svg 2>/dev/null || true
-        sudo cp -f "$icon" /usr/share/icons/hicolor/scalable/status/vdkey.svg 2>/dev/null || true
-        sudo cp -f "$icon" /usr/share/icons/breeze/status/22/fcitx-vdkey.svg 2>/dev/null || true
-        sudo cp -f "$icon" /usr/share/icons/breeze/status/24/fcitx-vdkey.svg 2>/dev/null || true
-        sudo cp -f "$icon" /usr/share/icons/breeze-dark/status/22/fcitx-vdkey.svg 2>/dev/null || true
-        sudo cp -f "$icon" /usr/share/icons/breeze-dark/status/24/fcitx-vdkey.svg 2>/dev/null || true
-    fi
-done
+# Tìm file SVG gốc của vdkey
+SRC_SVG=$(find /usr/share/icons -name "*vdkey*.svg" 2>/dev/null | head -n 1)
 
+if [ -n "$SRC_SVG" ] && [ -f "$SRC_SVG" ]; then
+    VARIANTS=(
+        "fcitx-vdkey"
+        "fcitx-vdkey-default"
+        "fcitx-vdkey-default-black"
+        "fcitx-vdkey-vi"
+        "fcitx-vdkey-active"
+        "fcitx-vdkey-telex"
+        "fcitx-vdkey-vni"
+        "vdkey"
+        "input-method-vdkey"
+    )
+
+    for name in "${VARIANTS[@]}"; do
+        # 1. Đưa SVG vào status và apps
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${name}.svg"
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${name}.svg"
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${name}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${name}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${name}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${name}.svg" 2>/dev/null || true
+
+        # 2. Render PNG 22x22 và 24x24 (Đúng định dạng KDE Plasma khay đồng hồ ưu tiên nạp)
+        if command -v rsvg-convert >/dev/null 2>&1; then
+            sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${name}.png" 2>/dev/null || true
+            sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${name}.png" 2>/dev/null || true
+        fi
+    done
+fi
+
+# Cập nhật cache toàn diện
 sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
 
+# Xóa cache icon của người dùng để Plasma không giữ cache cũ
+rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" "$USER_HOME/.cache/kpc/" 2>/dev/null || true
+
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
-    kbuildsycoca6 --noincremental 2>/dev/null || true
+    sudo -u "$ACTUAL_USER" kbuildsycoca6 --noincremental 2>/dev/null || true
 elif command -v kbuildsycoca5 >/dev/null 2>&1; then
-    kbuildsycoca5 --noincremental 2>/dev/null || true
+    sudo -u "$ACTUAL_USER" kbuildsycoca5 --noincremental 2>/dev/null || true
 fi
 
 echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & SỬA QUYỀN SỞ HỮU ==="
@@ -132,14 +169,27 @@ Layout=us
 0=Default
 EOF
 
+# Đảm bảo bật khay hệ thống (StatusNotifierItem)
+mkdir -p "$USER_FCITX_DIR/addon"
+cat << 'EOF' > "$USER_FCITX_DIR/addon/notificationitem.conf"
+[Addon]
+Name=notificationitem
+Enabled=True
+EOF
+
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
-echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 ==="
-killall -9 fcitx5 2>/dev/null || true
+echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 BẰNG ĐÚNG USER SESSION ==="
+# Dừng triệt để các tiến trình cũ
+pkill -9 -f fcitx5 2>/dev/null || true
 sleep 1
 
+# Dọn dẹp socket DBus tạm nếu bị treo
+rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
+
+# Khởi chạy daemon Fcitx5 giữ nguyên session bus của user
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
-    sudo -u "$ACTUAL_USER" fcitx5 -d >/dev/null 2>&1 &
+    sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" fcitx5 -d >/dev/null 2>&1 &
 else
     fcitx5 -d >/dev/null 2>&1 &
 fi
