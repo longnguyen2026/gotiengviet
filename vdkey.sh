@@ -34,21 +34,30 @@ echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
 TEMP_DEB="/tmp/vdkey-latest.deb"
 rm -f "$TEMP_DEB"
 
-# URL chuẩn từ release của repo gotiengviet
+# URL chuẩn từ Release repo gotiengviet
 RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-1.0.0-Linux.deb"
 
-echo "-> Đang tải gói .deb từ: $RELEASE_DEB_URL"
-curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB"
+echo "-> Đang tải gói .deb từ Release GitHub..."
+curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB" || true
+
+# Quét dự phòng nếu tải từ xa không thành công
+if [ ! -s "$TEMP_DEB" ]; then
+    echo "-> Kiểm tra gói .deb cục bộ trên hệ thống..."
+    LOCAL_DEB=$(find "$USER_HOME" "$PWD" -maxdepth 3 -name "vdkey*.deb" 2>/dev/null | head -n 1)
+    if [ -n "$LOCAL_DEB" ] && [ -s "$LOCAL_DEB" ]; then
+        cp -f "$LOCAL_DEB" "$TEMP_DEB"
+    fi
+fi
 
 if [ -s "$TEMP_DEB" ]; then
-    echo "-> Tải thành công! Đang tiến hành cài đặt..."
-    sudo dpkg -i "$TEMP_DEB" || sudo apt-get install -f -y
+    echo "-> Tiến hành cài đặt gói .deb..."
+    sudo dpkg -i --force-overwrite "$TEMP_DEB" || sudo apt-get install -f -y
 else
-    echo "LỖI: Không thể tải được file .deb!"
+    echo "LỖI: Không tìm thấy gói .deb hợp lệ để cài đặt!"
     exit 1
 fi
 
-# Tự động vá lỗi crash Py_Exit / SIP trên Python 3.14
+# Tự động vá lỗi crash Py_Exit / SIP trên Python 3.14 cho GUI Settings
 MAIN_PY="/usr/share/fcitx5-ngosen/settings-gui/main.py"
 if [ -f "$MAIN_PY" ]; then
     echo "-> Đang vá lỗi Segmentation Fault cho giao diện cài đặt..."
@@ -91,55 +100,65 @@ if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5
     sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
 fi
 
-echo "=== [5/7] ĐỒNG BỘ BỘ ICON TRAY (HICOLOR & BREEZE ĐẦY ĐỦ RASTERIZED) ==="
-# Tạo toàn bộ cây thư mục chuẩn cho Plasma Wayland
-sudo mkdir -p /usr/share/icons/hicolor/scalable/status
+echo "=== [5/7] ĐỒNG BỘ ĐẦY ĐỦ ICON TRAY (HICOLOR, BREEZE, BREEZE-DARK) ==="
+# Khởi tạo đầy đủ cây thư mục Plasma 6 / Breeze truy vấn
 sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
+sudo mkdir -p /usr/share/icons/hicolor/scalable/status
 sudo mkdir -p /usr/share/icons/hicolor/22x22/status
 sudo mkdir -p /usr/share/icons/hicolor/24x24/status
 sudo mkdir -p /usr/share/icons/breeze/status/{22,24}
 sudo mkdir -p /usr/share/icons/breeze-dark/status/{22,24}
 
-# Tìm file SVG gốc của vdkey
+# Lấy file SVG nguồn
 SRC_SVG=$(find /usr/share/icons -name "*vdkey*.svg" 2>/dev/null | head -n 1)
 
-if [ -n "$SRC_SVG" ] && [ -f "$SRC_SVG" ]; then
-    VARIANTS=(
+if [ -z "$SRC_SVG" ] || [ ! -f "$SRC_SVG" ]; then
+    SRC_SVG="/usr/share/icons/hicolor/scalable/apps/fcitx-vdkey.svg"
+    sudo curl -sSL "https://raw.githubusercontent.com/longnguyen2026/gotiengviet/main/data/icons/fcitx-vdkey.svg" -o "$SRC_SVG" 2>/dev/null || true
+fi
+
+if [ -f "$SRC_SVG" ]; then
+    NAMES=(
         "fcitx-vdkey"
+        "fcitx-vdkey-off"
         "fcitx-vdkey-default"
         "fcitx-vdkey-default-black"
+        "fcitx-vdkey-off-default"
+        "fcitx-vdkey-off-default-black"
         "fcitx-vdkey-vi"
         "fcitx-vdkey-active"
         "fcitx-vdkey-telex"
         "fcitx-vdkey-vni"
+        "org.fcitx.Fcitx5.fcitx-vdkey"
+        "org.fcitx.Fcitx5.fcitx-vdkey-off"
         "vdkey"
         "input-method-vdkey"
     )
 
-    for name in "${VARIANTS[@]}"; do
-        # 1. Đưa SVG vào status và apps
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${name}.svg"
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${name}.svg"
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${name}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${name}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${name}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${name}.svg" 2>/dev/null || true
+    for NAME in "${NAMES[@]}"; do
+        # 1. Cài đặt SVG vào hicolor và breeze/breeze-dark (22 & 24)
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${NAME}.svg" 2>/dev/null || true
 
-        # 2. Render PNG 22x22 và 24x24 (Đúng định dạng KDE Plasma khay đồng hồ ưu tiên nạp)
+        # 2. Render PNG 22x22 và 24x24 nếu có librsvg2-bin
         if command -v rsvg-convert >/dev/null 2>&1; then
-            sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${name}.png" 2>/dev/null || true
-            sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${name}.png" 2>/dev/null || true
+            sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${NAME}.png" 2>/dev/null || true
+            sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${NAME}.png" 2>/dev/null || true
         fi
     done
 fi
 
-# Cập nhật cache toàn diện
+# Cập nhật cache hệ thống
 sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
 
-# Xóa cache icon của người dùng để Plasma không giữ cache cũ
-rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" "$USER_HOME/.cache/kpc/" 2>/dev/null || true
+# Xóa cache icon Plasma cũ của người dùng
+rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" 2>/dev/null || true
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     sudo -u "$ACTUAL_USER" kbuildsycoca6 --noincremental 2>/dev/null || true
@@ -147,9 +166,9 @@ elif command -v kbuildsycoca5 >/dev/null 2>&1; then
     sudo -u "$ACTUAL_USER" kbuildsycoca5 --noincremental 2>/dev/null || true
 fi
 
-echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & SỬA QUYỀN SỞ HỮU ==="
+echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & BẬT TRAY NOTIFICATION ==="
 USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
-mkdir -p "$USER_FCITX_DIR"
+mkdir -p "$USER_FCITX_DIR/addon"
 
 cat << 'EOF' > "$USER_FCITX_DIR/profile"
 [Groups/0]
@@ -170,7 +189,6 @@ Layout=us
 EOF
 
 # Đảm bảo bật khay hệ thống (StatusNotifierItem)
-mkdir -p "$USER_FCITX_DIR/addon"
 cat << 'EOF' > "$USER_FCITX_DIR/addon/notificationitem.conf"
 [Addon]
 Name=notificationitem
@@ -179,15 +197,15 @@ EOF
 
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
-echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 BẰNG ĐÚNG USER SESSION ==="
-# Dừng triệt để các tiến trình cũ
+echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 DƯỚI USER SESSION ==="
+# Dừng các tiến trình Fcitx5 cũ
 pkill -9 -f fcitx5 2>/dev/null || true
 sleep 1
 
 # Dọn dẹp socket DBus tạm nếu bị treo
 rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
 
-# Khởi chạy daemon Fcitx5 giữ nguyên session bus của user
+# Khởi chạy Fcitx5 nạp đủ biến môi trường session của user
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" fcitx5 -d >/dev/null 2>&1 &
 else
