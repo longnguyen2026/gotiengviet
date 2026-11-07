@@ -61,10 +61,10 @@ if [ -f "$MAIN_PY" ]; then
     sudo sed -i 's/sys.exit(code)/import os; os._exit(code if code is not None else 0)/g' "$MAIN_PY"
 fi
 
-echo "=== [4/7] CẤU HÌNH INPUTMETHOD CHUẨN XÁC THEO MÁY NGUỒN ==="
+echo "=== [4/7] CẤU HÌNH INPUTMETHOD CHUẨN XÁC ==="
 sudo mkdir -p /usr/share/fcitx5/inputmethod /usr/share/fcitx5/addon
 
-# Cấu hình chuẩn theo máy long-tp301ua & long-pn60r: Name=vdkey thường, không chứa Label
+# Ghi đúng Name=vdkey thường và không có Label để hệ thống gọi trực tiếp icon
 sudo tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
 [InputMethod]
 Name=vdkey
@@ -91,7 +91,7 @@ Configurable=True
 1=notifications
 EOF
 
-# Symlink thư viện nếu hệ thống dùng multiarch x86_64
+# Đảm bảo symlink thư viện cho multiarch x86_64
 if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so" ]; then
     sudo mkdir -p /usr/lib/x86_64-linux-gnu/fcitx5
     sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
@@ -135,19 +135,19 @@ if [ -f "$SRC_SVG" ]; then
     )
 
     for NAME in "${NAMES[@]}"; do
-        # Đưa vào apps để menu KDE popup bốc đúng icon
+        # 1. Thư mục apps (phục vụ menu popup KDE Plasma & Fcitx config)
         sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/apps/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/apps/22/${NAME}.svg" 2>/dev/null || true
 
-        # Đưa vào status để khay hệ thống cạnh đồng hồ bốc icon
+        # 2. Thư mục status (phục vụ khay hệ thống StatusNotifierItem)
         sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${NAME}.svg" 2>/dev/null || true
 
-        # Render PNG cố định kích thước
+        # 3. Render PNG cho status fallback
         if command -v rsvg-convert >/dev/null 2>&1; then
             sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${NAME}.png" 2>/dev/null || true
             sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${NAME}.png" 2>/dev/null || true
@@ -169,7 +169,7 @@ elif command -v kbuildsycoca5 >/dev/null 2>&1; then
     sudo -u "$ACTUAL_USER" kbuildsycoca5 --noincremental 2>/dev/null || true
 fi
 
-echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 VÀ CONFIG NGUỒN ==="
+echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 USER ==="
 USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
 mkdir -p "$USER_FCITX_DIR/addon" "$USER_FCITX_DIR/conf"
 
@@ -191,14 +191,14 @@ Layout=us
 0=Default
 EOF
 
-# Bật addon StatusNotifierItem cho Plasma khay đồng hồ
+# Bật addon StatusNotifierItem cho khay hệ thống
 cat << 'EOF' > "$USER_FCITX_DIR/addon/notificationitem.conf"
 [Addon]
 Name=notificationitem
 Enabled=True
 EOF
 
-# Bật cờ nạp icon nguồn tương tự máy long-tp301ua
+# Kích hoạt bộ icon trạng thái gốc của engine
 cat << 'EOF' > "$USER_FCITX_DIR/conf/vdkey.conf"
 UseLotusIcons=True
 IconTheme=Auto
@@ -206,7 +206,7 @@ EOF
 
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
-echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 VÀ RELOAD PANEL ==="
+echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 VÀ RELOAD GIAO DIỆN ==="
 pkill -9 -f fcitx5 2>/dev/null || true
 sleep 1
 rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
@@ -214,7 +214,7 @@ rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" fcitx5 -d >/dev/null 2>&1 &
     
-    # Nếu đang chạy Plasma Wayland, reload plasmashell để cập nhật popup menu ngay
+    # Reload plasmashell nếu đang ở phiên Plasma để nhận icon menu ngay
     if pgrep -x "plasmashell" >/dev/null 2>&1; then
         sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" kquitapp6 plasmashell 2>/dev/null || true
         sleep 1
