@@ -34,15 +34,13 @@ echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
 TEMP_DEB="/tmp/vdkey-latest.deb"
 rm -f "$TEMP_DEB"
 
-# URL chuẩn từ Release repo gotiengviet
 RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-1.0.0-Linux.deb"
 
 echo "-> Đang tải gói .deb từ Release GitHub..."
 curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB" || true
 
-# Quét dự phòng nếu tải từ xa không thành công
 if [ ! -s "$TEMP_DEB" ]; then
-    echo "-> Kiểm tra gói .deb cục bộ trên hệ thống..."
+    echo "-> Quét file .deb cục bộ trên hệ thống..."
     LOCAL_DEB=$(find "$USER_HOME" "$PWD" -maxdepth 3 -name "vdkey*.deb" 2>/dev/null | head -n 1)
     if [ -n "$LOCAL_DEB" ] && [ -s "$LOCAL_DEB" ]; then
         cp -f "$LOCAL_DEB" "$TEMP_DEB"
@@ -53,25 +51,24 @@ if [ -s "$TEMP_DEB" ]; then
     echo "-> Tiến hành cài đặt gói .deb..."
     sudo dpkg -i --force-overwrite "$TEMP_DEB" || sudo apt-get install -f -y
 else
-    echo "LỖI: Không tìm thấy gói .deb hợp lệ để cài đặt!"
+    echo "LỖI: Không tìm thấy gói .deb hợp lệ!"
     exit 1
 fi
 
-# Tự động vá lỗi crash Py_Exit / SIP trên Python 3.14 cho GUI Settings
+# Tự động vá lỗi Segmentation Fault (PyQt6 / SIP) trên Python 3.14
 MAIN_PY="/usr/share/fcitx5-ngosen/settings-gui/main.py"
 if [ -f "$MAIN_PY" ]; then
-    echo "-> Đang vá lỗi Segmentation Fault cho giao diện cài đặt..."
     sudo sed -i 's/sys.exit(code)/import os; os._exit(code if code is not None else 0)/g' "$MAIN_PY"
 fi
 
-echo "=== [4/7] CẤU HÌNH INPUTMETHOD VÀ ADDON CHUẨN XÁC ==="
+echo "=== [4/7] CẤU HÌNH INPUTMETHOD CHUẨN XÁC THEO MÁY NGUỒN ==="
 sudo mkdir -p /usr/share/fcitx5/inputmethod /usr/share/fcitx5/addon
 
+# Ghi đúng cấu hình như máy long-tp301ua (Name=vdkey thường, không có Label)
 sudo tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
 [InputMethod]
-Name=VDKey
+Name=vdkey
 Icon=fcitx-vdkey
-Label=VD
 LangCode=vi
 Addon=vdkey
 Configurable=True
@@ -94,22 +91,22 @@ Configurable=True
 1=notifications
 EOF
 
-# Đảm bảo symlink thư viện cho x86_64
+# Symlink thư viện nếu hệ thống dùng multiarch x86_64
 if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so" ]; then
     sudo mkdir -p /usr/lib/x86_64-linux-gnu/fcitx5
     sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
 fi
 
-echo "=== [5/7] ĐỒNG BỘ ĐẦY ĐỦ ICON TRAY (HICOLOR, BREEZE, BREEZE-DARK) ==="
-# Khởi tạo đầy đủ cây thư mục Plasma 6 / Breeze truy vấn
+echo "=== [5/7] ĐỒNG BỘ TOÀN BỘ CÂY ICON VÀO THEME HỆ THỐNG ==="
 sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
 sudo mkdir -p /usr/share/icons/hicolor/scalable/status
 sudo mkdir -p /usr/share/icons/hicolor/22x22/status
 sudo mkdir -p /usr/share/icons/hicolor/24x24/status
 sudo mkdir -p /usr/share/icons/breeze/status/{22,24}
 sudo mkdir -p /usr/share/icons/breeze-dark/status/{22,24}
+sudo mkdir -p /usr/share/icons/breeze/apps/22
+sudo mkdir -p /usr/share/icons/breeze-dark/apps/22
 
-# Lấy file SVG nguồn
 SRC_SVG=$(find /usr/share/icons -name "*vdkey*.svg" 2>/dev/null | head -n 1)
 
 if [ -z "$SRC_SVG" ] || [ ! -f "$SRC_SVG" ]; then
@@ -136,15 +133,15 @@ if [ -f "$SRC_SVG" ]; then
     )
 
     for NAME in "${NAMES[@]}"; do
-        # 1. Cài đặt SVG vào hicolor và breeze/breeze-dark (22 & 24)
         sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/apps/22/${NAME}.svg" 2>/dev/null || true
+        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/apps/22/${NAME}.svg" 2>/dev/null || true
 
-        # 2. Render PNG 22x22 và 24x24 nếu có librsvg2-bin
         if command -v rsvg-convert >/dev/null 2>&1; then
             sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${NAME}.png" 2>/dev/null || true
             sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${NAME}.png" 2>/dev/null || true
@@ -152,12 +149,11 @@ if [ -f "$SRC_SVG" ]; then
     done
 fi
 
-# Cập nhật cache hệ thống
+# Cập nhật cache theme
 sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
 
-# Xóa cache icon Plasma cũ của người dùng
 rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" 2>/dev/null || true
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
@@ -166,9 +162,9 @@ elif command -v kbuildsycoca5 >/dev/null 2>&1; then
     sudo -u "$ACTUAL_USER" kbuildsycoca5 --noincremental 2>/dev/null || true
 fi
 
-echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & BẬT TRAY NOTIFICATION ==="
+echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 USER ==="
 USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
-mkdir -p "$USER_FCITX_DIR/addon"
+mkdir -p "$USER_FCITX_DIR/addon" "$USER_FCITX_DIR/conf"
 
 cat << 'EOF' > "$USER_FCITX_DIR/profile"
 [Groups/0]
@@ -188,7 +184,7 @@ Layout=us
 0=Default
 EOF
 
-# Đảm bảo bật khay hệ thống (StatusNotifierItem)
+# Bật addon StatusNotifierItem cho Plasma khay đồng hồ
 cat << 'EOF' > "$USER_FCITX_DIR/addon/notificationitem.conf"
 [Addon]
 Name=notificationitem
@@ -197,15 +193,11 @@ EOF
 
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
-echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 DƯỚI USER SESSION ==="
-# Dừng các tiến trình Fcitx5 cũ
+echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 BẰNG USER SESSION ==="
 pkill -9 -f fcitx5 2>/dev/null || true
 sleep 1
-
-# Dọn dẹp socket DBus tạm nếu bị treo
 rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
 
-# Khởi chạy Fcitx5 nạp đủ biến môi trường session của user
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" fcitx5 -d >/dev/null 2>&1 &
 else
