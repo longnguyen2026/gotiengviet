@@ -64,7 +64,6 @@ fi
 echo "=== [4/7] CẤU HÌNH INPUTMETHOD CHUẨN XÁC ==="
 sudo mkdir -p /usr/share/fcitx5/inputmethod /usr/share/fcitx5/addon
 
-# Ghi đúng Name=vdkey thường và không có Label để hệ thống gọi trực tiếp icon
 sudo tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
 [InputMethod]
 Name=vdkey
@@ -80,7 +79,7 @@ Name=vdkey
 Comment=VDKey Vietnamese Input Method
 Category=InputMethod
 ConfigGUI=fcitx5-ngosen-settings
-Version=1.0.0
+Version=2.0.0
 Enabled=True
 Library=vdkey
 Type=SharedLibrary
@@ -90,6 +89,9 @@ Configurable=True
 0=dbus
 1=notifications
 EOF
+
+# Xóa addon migration cũ nếu còn
+sudo rm -f /usr/share/fcitx5/addon/ngosenmigrate.conf
 
 # Đảm bảo symlink thư viện cho multiarch x86_64
 if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so" ]; then
@@ -135,19 +137,16 @@ if [ -f "$SRC_SVG" ]; then
     )
 
     for NAME in "${NAMES[@]}"; do
-        # 1. Thư mục apps (phục vụ menu popup KDE Plasma & Fcitx config)
         sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/apps/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/apps/22/${NAME}.svg" 2>/dev/null || true
 
-        # 2. Thư mục status (phục vụ khay hệ thống StatusNotifierItem)
         sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${NAME}.svg" 2>/dev/null || true
         sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${NAME}.svg" 2>/dev/null || true
 
-        # 3. Render PNG cho status fallback
         if command -v rsvg-convert >/dev/null 2>&1; then
             sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${NAME}.png" 2>/dev/null || true
             sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${NAME}.png" 2>/dev/null || true
@@ -155,12 +154,10 @@ if [ -f "$SRC_SVG" ]; then
     done
 fi
 
-# Cập nhật cache theme hệ thống
 sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
 
-# Xóa cache icon Plasma cũ của người dùng
 rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" 2>/dev/null || true
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
@@ -170,7 +167,7 @@ elif command -v kbuildsycoca5 >/dev/null 2>&1; then
 fi
 
 echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 USER ==="
-USER_FCITX_DIR="$USER_HOME/.config/fcitx5"1
+USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
 mkdir -p "$USER_FCITX_DIR/addon" "$USER_FCITX_DIR/conf"
 
 cat << 'EOF' > "$USER_FCITX_DIR/profile"
@@ -191,16 +188,15 @@ Layout=us
 0=Default
 EOF
 
-# Bật addon StatusNotifierItem cho khay hệ thống
 cat << 'EOF' > "$USER_FCITX_DIR/addon/notificationitem.conf"
 [Addon]
 Name=notificationitem
 Enabled=True
 EOF
 
-# Kích hoạt bộ icon trạng thái gốc của engine
 cat << 'EOF' > "$USER_FCITX_DIR/conf/vdkey.conf"
-UseLotusIcons=True
+UseLotusIcons=False
+AutoNonVnRestore=False
 IconTheme=Auto
 EOF
 
@@ -214,7 +210,6 @@ rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" fcitx5 -d >/dev/null 2>&1 &
     
-    # Reload plasmashell nếu đang ở phiên Plasma để nhận icon menu ngay
     if pgrep -x "plasmashell" >/dev/null 2>&1; then
         sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" kquitapp6 plasmashell 2>/dev/null || true
         sleep 1
