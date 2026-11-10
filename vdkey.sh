@@ -34,7 +34,7 @@ echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
 TEMP_DEB="/tmp/vdkey-latest.deb"
 rm -f "$TEMP_DEB"
 
-RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-1.0.0-Linux.deb"
+RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-2.0.0-Linux.deb"
 
 echo "-> Đang tải gói .deb từ Release GitHub..."
 curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB" || true
@@ -170,7 +170,7 @@ elif command -v kbuildsycoca5 >/dev/null 2>&1; then
 fi
 
 echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 USER ==="
-USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
+USER_FCITX_DIR="$USER_HOME/.config/fcitx5"1
 mkdir -p "$USER_FCITX_DIR/addon" "$USER_FCITX_DIR/conf"
 
 cat << 'EOF' > "$USER_FCITX_DIR/profile"
