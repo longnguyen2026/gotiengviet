@@ -58,7 +58,15 @@ fi
 # Tự động vá lỗi Segmentation Fault (PyQt6 / SIP) trên Python 3.14
 MAIN_PY="/usr/share/fcitx5-ngosen/settings-gui/main.py"
 if [ -f "$MAIN_PY" ]; then
-    sudo sed -i 's/sys.exit(code)/import os; os._exit(code if code is not None else 0)/g' "$MAIN_PY"
+    sudo python3 -c '
+p = "/usr/share/fcitx5-ngosen/settings-gui/main.py"
+with open(p, "r", encoding="utf-8") as f: c = f.read()
+if "import os" not in c: c = "import os\n" + c
+c = c.replace("sys.exit(app.exec())", "code = app.exec()\nos._exit(code if code is not None else 0)")
+c = c.replace("sys.exit(code)", "os._exit(code if code is not None else 0)")
+c = c.replace("sys.exit(0)", "os._exit(0)")
+with open(p, "w", encoding="utf-8") as f: f.write(c)
+'
 fi
 
 echo "=== [4/7] CẤU HÌNH INPUTMETHOD CHUẨN XÁC ==="
