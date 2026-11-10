@@ -2,6 +2,7 @@
 # VDKey installer: scan, optionally remove selected Vietnamese input methods,
 # then optionally download and install the latest DEB from GitHub Releases.
 # Does NOT remove the IBus/Fcitx framework or desktop components.
+# KHÔNG SỬ DỤNG
 
 set -Eeuo pipefail
 
