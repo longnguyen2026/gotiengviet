@@ -2,6 +2,7 @@
 # ==============================================================================
 # Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
 # Tự động gỡ xung đột, cấu hình profile và tắt kiểm tra chính tả gây lỗi Space
+# KHÔNG SỬ DỤNG
 # ==============================================================================
 set -e
 
