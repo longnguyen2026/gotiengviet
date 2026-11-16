@@ -27,6 +27,7 @@ sudo apt-get install -y -qq \
     libfcitx5config6 \
     libfcitx5core7 \
     librsvg2-bin \
+    imagemagick \
     wget \
     curl 2>/dev/null || true
 
@@ -34,7 +35,7 @@ echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
 TEMP_DEB="/tmp/vdkey-latest.deb"
 rm -f "$TEMP_DEB"
 
-RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-1.0.0-Linux.deb"
+RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-2.0.0-Linux.deb"
 
 echo "-> Đang tải gói .deb từ Release GitHub..."
 curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB" || true
@@ -58,13 +59,20 @@ fi
 # Tự động vá lỗi Segmentation Fault (PyQt6 / SIP) trên Python 3.14
 MAIN_PY="/usr/share/fcitx5-ngosen/settings-gui/main.py"
 if [ -f "$MAIN_PY" ]; then
-    sudo sed -i 's/sys.exit(code)/import os; os._exit(code if code is not None else 0)/g' "$MAIN_PY"
+    sudo python3 -c '
+p = "/usr/share/fcitx5-ngosen/settings-gui/main.py"
+with open(p, "r", encoding="utf-8") as f: c = f.read()
+if "import os" not in c: c = "import os\n" + c
+c = c.replace("sys.exit(app.exec())", "code = app.exec()\nos._exit(code if code is not None else 0)")
+c = c.replace("sys.exit(code)", "os._exit(code if code is not None else 0)")
+c = c.replace("sys.exit(0)", "os._exit(0)")
+with open(p, "w", encoding="utf-8") as f: f.write(c)
+'
 fi
 
 echo "=== [4/7] CẤU HÌNH INPUTMETHOD CHUẨN XÁC ==="
 sudo mkdir -p /usr/share/fcitx5/inputmethod /usr/share/fcitx5/addon
 
-# Ghi đúng Name=vdkey thường và không có Label để hệ thống gọi trực tiếp icon
 sudo tee /usr/share/fcitx5/inputmethod/vdkey.conf > /dev/null << 'EOF'
 [InputMethod]
 Name=vdkey
@@ -80,7 +88,7 @@ Name=vdkey
 Comment=VDKey Vietnamese Input Method
 Category=InputMethod
 ConfigGUI=fcitx5-ngosen-settings
-Version=1.0.0
+Version=2.0.0
 Enabled=True
 Library=vdkey
 Type=SharedLibrary
@@ -91,259 +99,97 @@ Configurable=True
 1=notifications
 EOF
 
+# Xóa addon migration cũ nếu còn
+sudo rm -f /usr/share/fcitx5/addon/ngosenmigrate.conf
+
 # Đảm bảo symlink thư viện cho multiarch x86_64
 if [ -f "/usr/lib/fcitx5/vdkey.so" ] && [ ! -f "/usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so" ]; then
     sudo mkdir -p /usr/lib/x86_64-linux-gnu/fcitx5
     sudo ln -sf /usr/lib/fcitx5/vdkey.so /usr/lib/x86_64-linux-gnu/fcitx5/vdkey.so
 fi
 
-echo "=== [5/7] ĐỒNG BỘ TOÀN BỘ CÂY ICON VÀO THEME HỆ THỐNG ==="
+echo "=== [5/7] ĐỒNG BỘ ICON VD MÀU XANH DƯƠNG VÀO TOÀN BỘ HỆ THỐNG ==="
 sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
 sudo mkdir -p /usr/share/icons/hicolor/scalable/status
+sudo mkdir -p /usr/share/icons/hicolor/16x16/status
 sudo mkdir -p /usr/share/icons/hicolor/22x22/status
 sudo mkdir -p /usr/share/icons/hicolor/24x24/status
+sudo mkdir -p /usr/share/icons/hicolor/32x32/status
+sudo mkdir -p /usr/share/icons/hicolor/48x48/status
 sudo mkdir -p /usr/share/icons/breeze/status/{22,24}
 sudo mkdir -p /usr/share/icons/breeze-dark/status/{22,24}
 sudo mkdir -p /usr/share/icons/breeze/apps/22
 sudo mkdir -p /usr/share/icons/breeze-dark/apps/22
 
-SRC_SVG=$(find /usr/share/icons -name "*vdkey*.svg" 2>/dev/null | head -n 1)
+SRC_SVG="/usr/share/icons/hicolor/scalable/apps/fcitx-vdkey.svg"
 
-if [ -z "$SRC_SVG" ] || [ ! -f "$SRC_SVG" ]; then
-    SRC_SVG="/usr/share/icons/hicolor/scalable/apps/fcitx-vdkey.svg"
-    sudo curl -sSL "https://raw.githubusercontent.com/longnguyen2026/gotiengviet/main/data/icons/fcitx-vdkey.svg" -o "$SRC_SVG" 2>/dev/null || true
-fi
+# Tạo trực tiếp file SVG icon VD màu xanh dương chuẩn (không bị KDE ép đơn sắc)
+sudo tee "$SRC_SVG" > /dev/null << 'EOF'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="vdBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E88E5"/>
+      <stop offset="100%" stop-color="#0D47A1"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#vdBlue)"/>
+  <text x="32" y="42" font-family="sans-serif" font-weight="bold" font-size="26" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">VD</text>
+</svg>
+EOF
 
-if [ -f "$SRC_SVG" ]; then
-    NAMES=(#!/usr/bin/env bash
-# ==============================================================================
-# Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
-# Tự động gỡ xung đột, cấu hình profile và tắt kiểm tra chính tả gây lỗi Space
-# KHÔNG SỬ DỤNG
-# ==============================================================================
-set -e
-
-GITHUB_USER="longnguyen2026"
-GITHUB_REPO="gotiengviet"
-TAG_NAME="vdkey"
-DEB_NAME="vdkey-1.0.0-Linux.deb"
-
-# Kiểm tra quyền root / sudo
-if [ "$EUID" -eq 0 ]; then
-    SUDO=""
-else
-    SUDO="sudo"
-fi
-
-echo "=================================================================="
-echo "          TRÌNH CÀI ĐẶT BỘ GÕ TIẾNG VIỆT VDKEY CHO LINUX          "
-echo "=================================================================="
-
-# --- BƯỚC 1: KIỂM TRA BỘ GÕ KHÁC TRÊN HỆ THỐNG ---
-echo ">> Đang kiểm tra các bộ gõ tiếng Việt khác trên máy..."
-
-CONFLICT_PACKAGES=()
-INSTALLED_DESC=()
-
-CANDIDATES=(
-    "ibus"
-    "ibus-bamboo"
-    "ibus-unikey"
-    "ibus-table-vi"
-    "fcitx"
-    "fcitx-unikey"
-    "fcitx-bamboo"
-    "fcitx-table-vi"
-    "fcitx5-unikey"
-    "fcitx5-bamboo"
-    "fcitx5-funput"
-    "funput"
-    "fcitx5-bogo"
-    "openkey"
+NAMES=(
+    "vdkey"
+    "org.fcitx.Fcitx5.vdkey"
+    "fcitx-vdkey"
+    "fcitx-vdkey-off"
+    "fcitx-vdkey-default"
+    "fcitx-vdkey-default-black"
+    "fcitx-vdkey-default-white"
+    "fcitx-vdkey-off-default"
+    "fcitx-vdkey-off-default-black"
+    "fcitx-vdkey-off-default-white"
+    "fcitx-vdkey-vi"
+    "fcitx-vdkey-active"
+    "fcitx-vdkey-telex"
+    "fcitx-vdkey-vni"
+    "org.fcitx.Fcitx5.fcitx-vdkey"
+    "org.fcitx.Fcitx5.fcitx-vdkey-off"
+    "input-method-vdkey"
+    "io.github.vdkey.NgoSen.Settings"
+    "io.github.ngosen.NgoSen.Settings"
 )
 
-for pkg in "${CANDIDATES[@]}"; do
-    if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-        CONFLICT_PACKAGES+=("$pkg")
-        INSTALLED_DESC+=(" - Gói hệ thống: $pkg")
+for NAME in "${NAMES[@]}"; do
+    [ "$NAME" != "fcitx-vdkey" ] && sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${NAME}.svg" 2>/dev/null || true
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/apps/22/${NAME}.svg" 2>/dev/null || true
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/apps/22/${NAME}.svg" 2>/dev/null || true
+
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${NAME}.svg" 2>/dev/null || true
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${NAME}.svg" 2>/dev/null || true
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${NAME}.svg" 2>/dev/null || true
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${NAME}.svg" 2>/dev/null || true
+    sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${NAME}.svg" 2>/dev/null || true
+
+    if command -v rsvg-convert >/dev/null 2>&1; then
+        for SZ in 16 22 24 32 48; do
+            sudo rsvg-convert -w "$SZ" -h "$SZ" "$SRC_SVG" -o "/usr/share/icons/hicolor/${SZ}x${SZ}/status/${NAME}.png" 2>/dev/null || true
+        done
     fi
 done
 
-# Quét an toàn các file cài tay của Bamboo/Funput
-MANUAL_FILES=()
-shopt -s nullglob
-for path in /usr/share/fcitx5/addon/*funput*.conf /usr/share/fcitx5/inputmethod/*funput*.conf /usr/lib/*/fcitx5/*funput*.so; do
-    if [ -f "$path" ]; then
-        MANUAL_FILES+=("$path")
-    fi
-#!/usr/bin/env bash
-# ==============================================================================
-# Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
-# Tự động gỡ xung đột, cấu hình profile và tắt kiểm tra chính tả gây lỗi Space
-# KHÔNG SỬ DỤNG
-# ==============================================================================
-set -e
-
-GITHUB_USER="longnguyen2026"
-GITHUB_REPO="gotiengviet"
-TAG_NAME="vdkey"
-DEB_NAME="vdkey-1.0.0-Linux.deb"
-
-# Kiểm tra quyền root / sudo
-if [ "$EUID" -eq 0 ]; then
-    SUDO=""
-else
-    SUDO="sudo"
+# Ghi đè toàn bộ các file icon SVG/PNG còn sót trong /usr/share (bao gồm /usr/share/fcitx5-ngosen)
+sudo find /usr/share -type f \( -iname "*vdkey*.svg" -o -iname "*ngosen*.svg" \) ! -samefile "$SRC_SVG" -exec cp -f "$SRC_SVG" {} \; 2>/dev/null || true
+if command -v rsvg-convert >/dev/null 2>&1; then
+    sudo find /usr/share -type f \( -iname "*vdkey*.png" -o -iname "*ngosen*.png" \) -exec sh -c '
+        SIZE=$(identify -format "%w" "$1" 2>/dev/null || echo 24)
+        rsvg-convert -w "$SIZE" -h "$SIZE" "'"$SRC_SVG"'" -o "$1"
+    ' _ {} \; 2>/dev/null || true
 fi
 
-echo "=================================================================="
-echo "          TRÌNH CÀI ĐẶT BỘ GÕ TIẾNG VIỆT VDKEY CHO LINUX          "
-echo "=================================================================="
-
-# --- BƯỚC 1: KIỂM TRA BỘ GÕ KHÁC TRÊN HỆ THỐNG ---
-echo ">> Đang kiểm tra các bộ gõ tiếng Việt khác trên máy..."
-
-CONFLICT_PACKAGES=()
-INSTALLED_DESC=()
-
-CANDIDATES=(
-    "ibus"
-    "ibus-bamboo"
-    "ibus-unikey"
-    "ibus-table-vi"
-    "fcitx"
-    "fcitx-unikey"
-    "fcitx-bamboo"
-    "fcitx-table-vi"
-    "fcitx5-unikey"
-    "fcitx5-bamboo"
-    "fcitx5-funput"
-    "funput"
-    "fcitx5-bogo"
-    "openkey"
-)
-
-for pkg in "${CANDIDATES[@]}"; do
-    if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-        CONFLICT_PACKAGES+=("$pkg")
-        INSTALLED_DESC+=(" - Gói hệ thống: $pkg")
-    fi
-done
-
-# Quét an toàn các file cài tay của Bamboo/Funput
-MANUAL_FILES=()
-shopt -s nullglob
-for path in /usr/share/fcitx5/addon/*funput*.conf /usr/share/fcitx5/inputmethod/*funput*.conf /usr/lib/*/fcitx5/*funput*.so; do
-    if [ -f "$path" ]; then
-        MANUAL_FILES+=("$path")
-    fi
-#!/usr/bin/env bash
-# ==============================================================================
-# Script cài đặt & tự động cấu hình bộ gõ VDKey cho Ubuntu / Debian / Linux Mint
-# Tự động gỡ xung đột, cấu hình profile và tắt kiểm tra chính tả gây lỗi Space
-# KHÔNG SỬ DỤNG
-# ==============================================================================
-set -e
-
-GITHUB_USER="longnguyen2026"
-GITHUB_REPO="gotiengviet"
-TAG_NAME="vdkey"
-DEB_NAME="vdkey-1.0.0-Linux.deb"
-
-# Kiểm tra quyền root / sudo
-if [ "$EUID" -eq 0 ]; then
-    SUDO=""
-else
-    SUDO="sudo"
-fi
-
-echo "=================================================================="
-echo "          TRÌNH CÀI ĐẶT BỘ GÕ TIẾNG VIỆT VDKEY CHO LINUX          "
-echo "=================================================================="
-
-# --- BƯỚC 1: KIỂM TRA BỘ GÕ KHÁC TRÊN HỆ THỐNG ---
-echo ">> Đang kiểm tra các bộ gõ tiếng Việt khác trên máy..."
-
-CONFLICT_PACKAGES=()
-INSTALLED_DESC=()
-
-CANDIDATES=(
-    "ibus"
-    "ibus-bamboo"
-    "ibus-unikey"
-    "ibus-table-vi"
-    "fcitx"
-    "fcitx-unikey"
-    "fcitx-bamboo"
-    "fcitx-table-vi"
-    "fcitx5-unikey"
-    "fcitx5-bamboo"
-    "fcitx5-funput"
-    "funput"
-    "fcitx5-bogo"
-    "openkey"
-)
-
-for pkg in "${CANDIDATES[@]}"; do
-    if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-        CONFLICT_PACKAGES+=("$pkg")
-        INSTALLED_DESC+=(" - Gói hệ thống: $pkg")
-    fi
-done
-
-# Quét an toàn các file cài tay của Bamboo/Funput
-MANUAL_FILES=()
-shopt -s nullglob
-for path in /usr/share/fcitx5/addon/*funput*.conf /usr/share/fcitx5/inputmethod/*funput*.conf /usr/lib/*/fcitx5/*funput*.so; do
-    if [ -f "$path" ]; then
-        MANUAL_FILES+=("$path")
-    fi
-
-        "vdkey"
-        "org.fcitx.Fcitx5.vdkey"
-        "fcitx-vdkey"
-        "fcitx-vdkey-off"
-        "fcitx-vdkey-default"
-        "fcitx-vdkey-default-black"
-        "fcitx-vdkey-off-default"
-        "fcitx-vdkey-off-default-black"
-        "fcitx-vdkey-vi"
-        "fcitx-vdkey-active"
-        "fcitx-vdkey-telex"
-        "fcitx-vdkey-vni"
-        "org.fcitx.Fcitx5.fcitx-vdkey"
-        "org.fcitx.Fcitx5.fcitx-vdkey-off"
-        "input-method-vdkey"
-        "io.github.vdkey.NgoSen.Settings"
-    )
-
-    for NAME in "${NAMES[@]}"; do
-        # 1. Thư mục apps (phục vụ menu popup KDE Plasma & Fcitx config)
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/apps/${NAME}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/apps/22/${NAME}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/apps/22/${NAME}.svg" 2>/dev/null || true
-
-        # 2. Thư mục status (phục vụ khay hệ thống StatusNotifierItem)
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/hicolor/scalable/status/${NAME}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/22/${NAME}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze/status/24/${NAME}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/22/${NAME}.svg" 2>/dev/null || true
-        sudo cp -f "$SRC_SVG" "/usr/share/icons/breeze-dark/status/24/${NAME}.svg" 2>/dev/null || true
-
-        # 3. Render PNG cho status fallback
-        if command -v rsvg-convert >/dev/null 2>&1; then
-            sudo rsvg-convert -w 22 -h 22 "$SRC_SVG" -o "/usr/share/icons/hicolor/22x22/status/${NAME}.png" 2>/dev/null || true
-            sudo rsvg-convert -w 24 -h 24 "$SRC_SVG" -o "/usr/share/icons/hicolor/24x24/status/${NAME}.png" 2>/dev/null || true
-        fi
-    done
-fi
-
-# Cập nhật cache theme hệ thống
 sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze 2>/dev/null || true
 sudo gtk-update-icon-cache -f -q /usr/share/icons/breeze-dark 2>/dev/null || true
 
-# Xóa cache icon Plasma cũ của người dùng
 rm -rf "$USER_HOME/.cache/icon-cache.kcache" "$USER_HOME/.cache/plasma*" 2>/dev/null || true
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
@@ -352,10 +198,19 @@ elif command -v kbuildsycoca5 >/dev/null 2>&1; then
     sudo -u "$ACTUAL_USER" kbuildsycoca5 --noincremental 2>/dev/null || true
 fi
 
-echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 USER ==="
-USER_FCITX_DIR="$USER_HOME/.config/fcitx5"1
+echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & KHÓA TRẠNG THÁI TOÀN HỆ THỐNG ==="
+USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
 mkdir -p "$USER_FCITX_DIR/addon" "$USER_FCITX_DIR/conf"
 
+# 1. Giữ nguyên trạng thái bộ gõ toàn cục (không tự nhảy về tiếng Anh khi chuyển app/Desktop)
+touch "$USER_FCITX_DIR/config"
+if grep -q "^ShareInputState=" "$USER_FCITX_DIR/config"; then
+    sed -i 's/^ShareInputState=.*/ShareInputState=All/' "$USER_FCITX_DIR/config"
+else
+    echo "ShareInputState=All" >> "$USER_FCITX_DIR/config"
+fi
+
+# 2. Giữ cả VDKey và bàn phím US, ưu tiên VDKey mặc định
 cat << 'EOF' > "$USER_FCITX_DIR/profile"
 [Groups/0]
 Name=Default
@@ -374,20 +229,46 @@ Layout=us
 0=Default
 EOF
 
-# Bật addon StatusNotifierItem cho khay hệ thống
 cat << 'EOF' > "$USER_FCITX_DIR/addon/notificationitem.conf"
 [Addon]
 Name=notificationitem
 Enabled=True
 EOF
 
-# Kích hoạt bộ icon trạng thái gốc của engine
+# 3. Ép hiển thị icon màu mặc định
 cat << 'EOF' > "$USER_FCITX_DIR/conf/vdkey.conf"
-UseLotusIcons=True
-IconTheme=Auto
+UseLotusIcons=False
+AutoNonVnRestore=False
+IconTheme=Default
+EOF
+
+cat << 'EOF' > "$USER_FCITX_DIR/conf/classicui.conf"
+Vertical Candidate List=False
+WheelForPaging=True
+Font="Sans 10"
+MenuFont="Sans 10"
+TrayFont="Sans Bold 10"
+TrayOutlineColor=#000000
+TrayTextColor=#ffffff
+PreferTextIcon=False
+ShowLayoutNameInIcon=True
+UseInputMethodLanguageToDisplayText=True
+Theme=default
+DarkTheme=default
+UseDarkTheme=False
+UseAccentColor=True
+PerScreenDPI=True
+ForceWaylandDPI=0
+EnableFractionalScale=True
 EOF
 
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
+
+# 4. Đồng bộ chính sách chuyển layout toàn cục cho KWin (KDE Plasma 6 / 5)
+if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
+    sudo -u "$ACTUAL_USER" kwriteconfig6 --file kwinrc --group Layout --key SwitchingPolicy Global 2>/dev/null || \
+    sudo -u "$ACTUAL_USER" kwriteconfig5 --file kwinrc --group Layout --key SwitchingPolicy Global 2>/dev/null || true
+fi
 
 echo "=== [7/7] KHỞI ĐỘNG LẠI TIẾN TRÌNH FCITX5 VÀ RELOAD GIAO DIỆN ==="
 pkill -9 -f fcitx5 2>/dev/null || true
@@ -397,7 +278,6 @@ rm -rf "/run/user/$ACTUAL_UID/fcitx5"* "/tmp/fcitx5"* 2>/dev/null || true
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" fcitx5 -d >/dev/null 2>&1 &
     
-    # Reload plasmashell nếu đang ở phiên Plasma để nhận icon menu ngay
     if pgrep -x "plasmashell" >/dev/null 2>&1; then
         sudo -u "$ACTUAL_USER" env XDG_RUNTIME_DIR="/run/user/$ACTUAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$ACTUAL_UID/bus" kquitapp6 plasmashell 2>/dev/null || true
         sleep 1
@@ -407,4 +287,4 @@ else
     fcitx5 -d >/dev/null 2>&1 &
 fi
 
-echo "=== HOÀN TẤT CÀI ĐẶT! BIỂU TƯỢNG VD ĐÃ SẴN SÀNG TRÊN KHAY HỆ THỐNG & MENU ==="
+echo "=== HOÀN TẤT CÀI ĐẶT! BIỂU TƯỢNG VD XANH ĐÃ SẴN SÀNG TRÊN KHAY HỆ THỐNG & MENU ==="
