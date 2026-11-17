@@ -204,15 +204,36 @@ echo "=== [6/7] THIẾT LẬP PROFILE FCITX5 & KHÓA TRẠNG THÁI TOÀN HỆ TH
 USER_FCITX_DIR="$USER_HOME/.config/fcitx5"
 mkdir -p "$USER_FCITX_DIR/addon" "$USER_FCITX_DIR/conf"
 
-# 1. Giữ nguyên trạng thái bộ gõ toàn cục (không tự nhảy về tiếng Anh khi chuyển app/Desktop)
-touch "$USER_FCITX_DIR/config"
-if grep -q "^ShareInputState=" "$USER_FCITX_DIR/config"; then
-    sed -i 's/^ShareInputState=.*/ShareInputState=All/' "$USER_FCITX_DIR/config"
-else
-    echo "ShareInputState=All" >> "$USER_FCITX_DIR/config"
-fi
+# 1. Khóa trạng thái Active mặc định & dùng chung toàn cục (giữ song song Anh - Việt mượt mà, không trễ icon tray)
+cat << 'EOF' > "$USER_FCITX_DIR/config"
+[Hotkey]
+EnumerateWithTriggerKeys=True
+AltTriggerKeys=
+EnumerateForwardKeys=
+EnumerateBackwardKeys=
+EnumerateSkipFirst=False
 
-# 2. Giữ cả VDKey và bàn phím US, ưu tiên VDKey mặc định
+[Behavior]
+ActiveByDefault=True
+resetStateWhenFocusIn=No
+ShareInputState=All
+PreeditEnabledByDefault=True
+ShowInputMethodInformation=False
+showInputMethodInformationWhenFocusIn=False
+CompactInputMethodInformation=True
+ShowFirstInputMethodInformation=False
+DefaultPageSize=5
+OverrideXkbOption=False
+CustomXkbOption=
+EnabledAddons=
+DisabledAddons=
+PreloadInputMethod=True
+AllowInputMethodForPassword=False
+ShowPreeditForPassword=False
+AutoSavePeriod=30
+EOF
+
+# 2. Giữ song song cả VDKey và bàn phím US, ưu tiên VDKey mặc định
 cat << 'EOF' > "$USER_FCITX_DIR/profile"
 [Groups/0]
 Name=Default
@@ -246,7 +267,68 @@ EOF
 
 cat << 'EOF' > "$USER_FCITX_DIR/conf/classicui.conf"
 Vertical Candidate List=False
-WheelForPaging=True
+WheelForPaging=True#!/bin/bash
+set -e
+
+echo "=== [1/7] XÁC ĐỊNH NGƯỜI DÙNG VÀ MÔI TRƯỜNG HỆ THỐNG ==="
+ACTUAL_USER="${SUDO_USER:-$USER}"
+USER_HOME=$(eval echo "~$ACTUAL_USER")
+
+if [ -z "$ACTUAL_USER" ] || [ "$ACTUAL_USER" = "root" ]; then
+    ACTUAL_USER=$(logname 2>/dev/null || who | awk '{print $1}' | head -n 1)
+    USER_HOME=$(eval echo "~$ACTUAL_USER")
+fi
+
+ACTUAL_UID=$(id -u "$ACTUAL_USER")
+echo "-> Cài đặt cho User: $ACTUAL_USER (UID: $ACTUAL_UID)"
+echo "-> Thư mục Home: $USER_HOME"
+
+echo "=== [2/7] CÀI ĐẶT CÁC GÓI PHỤ THUỘC (DEPENDENCIES) ==="
+sudo apt-get update -qq
+sudo apt-get install -y -qq \
+    fcitx5 \
+    fcitx5-chinese-addons \
+    fcitx5-frontend-qt5 \
+    fcitx5-frontend-qt6 \
+    fcitx5-module-xorg \
+    fcitx5-frontend-gtk3 \
+    fcitx5-frontend-gtk4 \
+    libfcitx5qt6dbusaddons1 \
+    libfcitx5utils2 \
+    libfcitx5config6 \
+    libfcitx5core7 \
+    librsvg2-bin \
+    imagemagick \
+    wget \
+    curl 2>/dev/null || true
+
+echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
+TEMP_DEB="/tmp/vdkey-latest.deb"
+rm -f "$TEMP_DEB"
+
+RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-2.0.0-Linux.deb"
+
+echo "-> Đang tải gói .deb từ Release GitHub..."
+curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB" || true
+
+if [ ! -s "$TEMP_DEB" ]; then
+    echo "-> Quét file .deb cục bộ trên hệ thống..."
+    LOCAL_DEB=$(find "$USER_HOME" "$PWD" -maxdepth 3 -name "vdkey*.deb" 2>/dev/null | head -n 1)
+    if [ -n "$LOCAL_DEB" ] && [ -s "$LOCAL_DEB" ]; then
+        cp -f "$LOCAL_DEB" "$TEMP_DEB"
+    fi
+fi
+
+if [ -s "$TEMP_DEB" ]; then
+    echo "-> Tiến hành cài đặt gói .deb..."
+    sudo dpkg -i --force-overwrite "$TEMP_DEB" || sudo apt-get install -f -y
+else
+    echo "LỖI: Không tìm thấy gói .deb hợp lệ!"
+    exit 1
+fi
+
+# Tự động vá lỗi Segmentation Fault (PyQt6 / SIP) trên Python 3.14
+
 Font="Sans 10"
 MenuFont="Sans 10"
 TrayFont="Sans Bold 10"
