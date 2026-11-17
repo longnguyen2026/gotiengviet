@@ -256,68 +256,7 @@ PreferTextIcon=False
 ShowLayoutNameInIcon=True
 UseInputMethodLanguageToDisplayText=True
 Theme=default
-DarkTheme=default#!/bin/bash
-set -e
-
-echo "=== [1/7] XÁC ĐỊNH NGƯỜI DÙNG VÀ MÔI TRƯỜNG HỆ THỐNG ==="
-ACTUAL_USER="${SUDO_USER:-$USER}"
-USER_HOME=$(eval echo "~$ACTUAL_USER")
-
-if [ -z "$ACTUAL_USER" ] || [ "$ACTUAL_USER" = "root" ]; then
-    ACTUAL_USER=$(logname 2>/dev/null || who | awk '{print $1}' | head -n 1)
-    USER_HOME=$(eval echo "~$ACTUAL_USER")
-fi
-
-ACTUAL_UID=$(id -u "$ACTUAL_USER")
-echo "-> Cài đặt cho User: $ACTUAL_USER (UID: $ACTUAL_UID)"
-echo "-> Thư mục Home: $USER_HOME"
-
-echo "=== [2/7] CÀI ĐẶT CÁC GÓI PHỤ THUỘC (DEPENDENCIES) ==="
-sudo apt-get update -qq
-sudo apt-get install -y -qq \
-    fcitx5 \
-    fcitx5-chinese-addons \
-    fcitx5-frontend-qt6 \
-    fcitx5-frontend-gtk3 \
-    fcitx5-frontend-gtk4 \
-    libfcitx5qt6dbusaddons1 \
-    libfcitx5utils2 \
-    libfcitx5config6 \
-    libfcitx5core7 \
-    librsvg2-bin \
-    imagemagick \
-    wget \
-    curl 2>/dev/null || true
-
-echo "=== [3/7] TẢI VÀ CÀI ĐẶT GÓI .DEB VDKEY ==="
-TEMP_DEB="/tmp/vdkey-latest.deb"
-rm -f "$TEMP_DEB"
-
-RELEASE_DEB_URL="https://github.com/longnguyen2026/gotiengviet/releases/download/vdkey/vdkey-2.0.0-Linux.deb"
-
-echo "-> Đang tải gói .deb từ Release GitHub..."
-curl -fL "$RELEASE_DEB_URL" -o "$TEMP_DEB" || true
-
-if [ ! -s "$TEMP_DEB" ]; then
-    echo "-> Quét file .deb cục bộ trên hệ thống..."
-    LOCAL_DEB=$(find "$USER_HOME" "$PWD" -maxdepth 3 -name "vdkey*.deb" 2>/dev/null | head -n 1)
-    if [ -n "$LOCAL_DEB" ] && [ -s "$LOCAL_DEB" ]; then
-        cp -f "$LOCAL_DEB" "$TEMP_DEB"
-    fi
-fi
-
-if [ -s "$TEMP_DEB" ]; then
-    echo "-> Tiến hành cài đặt gói .deb..."
-    sudo dpkg -i --force-overwrite "$TEMP_DEB" || sudo apt-get install -f -y
-else
-    echo "LỖI: Không tìm thấy gói .deb hợp lệ!"
-    exit 1
-fi
-
-# Tự động vá lỗi Segmentation Fault (PyQt6 / SIP) trên Python 3.14
-MAIN_PY="/usr/share/fcitx5-ngosen/settings-gui/main.py"
-if [ -f "$MAIN_PY" ]; then
-
+DarkTheme=default
 UseDarkTheme=False
 UseAccentColor=True
 PerScreenDPI=True
@@ -327,23 +266,17 @@ EOF
 
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_FCITX_DIR"
 
-# 4. Đồng bộ chính sách chuyển layout toàn cục cho KWin (KDE Plasma 6 / 5)
+# 4. Đồng bộ chính sách chuyển layout toàn cục & Wayland InputMethod cho KWin (KDE Plasma 6 / 5)
 if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
     sudo -u "$ACTUAL_USER" kwriteconfig6 --file kwinrc --group Layout --key SwitchingPolicy Global 2>/dev/null || \
     sudo -u "$ACTUAL_USER" kwriteconfig5 --file kwinrc --group Layout --key SwitchingPolicy Global 2>/dev/null || true
+    sudo -u "$ACTUAL_USER" kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --type path "/usr/share/applications/org.fcitx.Fcitx5.desktop" 2>/dev/null || true
 fi
 
-# 5. Khai báo biến môi trường bộ gõ toàn cục cho người dùng (Qt5, Qt6, GTK, X11)
-mkdir -p "$USER_HOME/.config/environment.d"
-cat << 'EOF' > "$USER_HOME/.config/environment.d/fcitx5.conf"
-GTK_IM_MODULE=fcitx
-QT_IM_MODULE=fcitx
-XMODIFIERS=@im=fcitx
-SDL_IM_MODULE=fcitx
-EOF
-chown -R "$ACTUAL_USER:$ACTUAL_USER" "$USER_HOME/.config/environment.d"
+# 5. Xóa biến môi trường toàn cục (tránh cảnh báo Wayland khi khởi động KDE Plasma)
+rm -f "$USER_HOME/.config/environment.d/fcitx5.conf"
 
-# 6. Nhúng biến môi trường trực tiếp vào file khởi chạy WPS Office (nếu đã cài WPS)
+# 6. Chỉ nhúng biến môi trường cục bộ vào file khởi chạy WPS Office (ứng dụng XWayland/Qt5)
 for f in /usr/bin/wps /usr/bin/et /usr/bin/wpp; do
     if [ -f "$f" ] && ! grep -q "QT_IM_MODULE=fcitx" "$f"; then
         sudo sed -i '2i export GTK_IM_MODULE=fcitx\nexport QT_IM_MODULE=fcitx\nexport XMODIFIERS=@im=fcitx' "$f"
