@@ -1,7 +1,7 @@
 # Lệnh cài bộ gõ tiếng việt VDkey (hạn chế user nhanvien)
 
 ````bash
-bash <(curl -fsSL https://raw.githubusercontent.com/longnguyen2026/gotiengviet/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/longnguyen2026/gotiengviet/main/vd.sh)
 ````
 
 
